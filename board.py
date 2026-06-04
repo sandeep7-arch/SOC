@@ -206,4 +206,3 @@ class ChessBoard:
 
     def __repr__(self) -> str:
         return f"ChessBoard(fen='{self.export_fen()}')"
-    
