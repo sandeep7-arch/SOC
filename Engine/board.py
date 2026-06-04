@@ -57,6 +57,23 @@ class ChessBoard:
         return cloned
 
     @property
+    def halfmove_clock(self) -> int:
+        """Number of halfmoves since the last pawn move or capture."""
+        return self._board.halfmove_clock
+
+    @property
+    def fullmove_number(self) -> int:
+        """The current fullmove number of the game."""
+        return self._board.fullmove_number
+
+    @property
+    def en_passant_square(self) -> Optional[str]:
+        """Returns en passant target square in algebraic notation (e.g. 'e3')."""
+        if self._board.ep_square is None:
+            return None
+        return chess.square_name(self._board.ep_square)
+    
+    @property
     def board(self) -> chess.Board:
         """Exposes the underlying board for the MoveGenerator and Search layers."""
         return self._board
