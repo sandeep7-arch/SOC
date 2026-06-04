@@ -8,20 +8,52 @@ from typing import Optional, Union
 class ChessBoard:
     """
     Thin wrapper around python-chess.Board.
-    Responsibilities: State management, FEN IO, and Make/Undo.
+    Responsibilities: State management, FEN IO, and Make/Undo operations.
     """
 
     def __init__(self, fen: Optional[str] = None) -> None:
+        if fen and not self.is_valid_fen(fen):
+            raise ValueError(f"Invalid initial FEN: {fen}")
         self._board = chess.Board(fen) if fen else chess.Board()
 
     def reset(self) -> None:
+        """Reset the board to the standard starting position."""
         self._board.reset()
 
-    def load_fen(self, fen: str) -> None:
+    # ------------------------------------------------------------------
+    # FEN Operations (Absorbed from fen.py)
+    # ------------------------------------------------------------------
+
+    def load_fen(self, fen: str) -> bool:
+        """
+        Loads a FEN string into the board state. 
+        Returns False if the FEN is structurally invalid.
+        """
+        if not self.is_valid_fen(fen):
+            return False
         self._board.set_fen(fen)
+        return True
 
     def export_fen(self) -> str:
+        """Export the current board layout and metadata as a canonical FEN string."""
         return self._board.fen()
+
+    @staticmethod
+    def is_valid_fen(fen_str: str) -> bool:
+        """
+        Fast validation of a FEN string using python-chess bitboard checking.
+        Does not spin up an entire board instance in memory.
+        """
+        return chess.Board.is_valid(fen_str)
+
+    @staticmethod
+    def get_starting_fen() -> str:
+        """Returns the standard chess starting position FEN."""
+        return chess.STARTING_FEN
+
+    # ------------------------------------------------------------------
+    # State Mutations (Make / Undo)
+    # ------------------------------------------------------------------
 
     def make_move(self, move: Union[str, chess.Move]) -> bool:
         if isinstance(move, str):
@@ -42,6 +74,10 @@ class ChessBoard:
             return None
         return self._board.pop()
 
+    # ------------------------------------------------------------------
+    # Status / Rules Queries
+    # ------------------------------------------------------------------
+
     def is_game_over(self) -> bool:
         return self._board.is_game_over()
 
@@ -55,6 +91,10 @@ class ChessBoard:
         cloned = ChessBoard()
         cloned._board = self._board.copy(stack=True)
         return cloned
+
+    # ------------------------------------------------------------------
+    # State Metadata Accessors (Absorbed from state.py)
+    # ------------------------------------------------------------------
 
     @property
     def halfmove_clock(self) -> int:
@@ -109,7 +149,7 @@ class ChessBoard:
             self._board.has_kingside_castling_rights(chess.BLACK),
             self._board.has_queenside_castling_rights(chess.BLACK),
         )
-    
+
     @property
     def board(self) -> chess.Board:
         """Exposes the underlying board for the MoveGenerator and Search layers."""
