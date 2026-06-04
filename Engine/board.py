@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import chess
-from typing import List, Optional
+from typing import List, Optional , Union
 
 
 class ChessBoard:
@@ -74,28 +74,35 @@ class ChessBoard:
     # Move Handling
     # ------------------------------------------------------------------
 
-    def make_move(self, move_uci_str: str) -> bool:
+    def make_move(self, move: Union[str, chess.Move]) -> bool:
         """
         Execute a legal move.
 
         Args:
-            move_uci_str:
-                Move in UCI format (e.g. 'e2e4', 'e7e8q').
+            move: Move object or move in UCI format (e.g. 'e2e4').
 
         Returns:
-            True if move was executed.
-            False if move is illegal or invalid.
+            True if move was executed, False otherwise.
         """
-        try:
-            move = chess.Move.from_uci(move_uci_str)
-        except ValueError:
-            return False
+        if isinstance(move, str):
+            try:
+                move = chess.Move.from_uci(move)
+            except ValueError:
+                return False
 
+        # In python-chess, 'in board.legal_moves' is highly optimized
         if move not in self._board.legal_moves:
             return False
 
         self._board.push(move)
         return True
+
+    def get_raw_legal_moves(self) -> chess.LegalMoveGenerator:
+        """
+        Returns the raw generator for high-performance search loops.
+        Avoiding string conversion here speeds up search significantly.
+        """
+        return self._board.legal_moves
 
     def undo_move(self) -> Optional[chess.Move]:
         """
