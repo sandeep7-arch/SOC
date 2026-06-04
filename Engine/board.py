@@ -72,6 +72,43 @@ class ChessBoard:
         if self._board.ep_square is None:
             return None
         return chess.square_name(self._board.ep_square)
+
+    # ------------------------------------------------------------------
+    # Castling Rights (Boundary API)
+    # ------------------------------------------------------------------
+
+    @property
+    def has_white_kingside_rights(self) -> bool:
+        """Check if White can castle kingside."""
+        return self._board.has_kingside_castling_rights(chess.WHITE)
+
+    @property
+    def has_white_queenside_rights(self) -> bool:
+        """Check if White can castle queenside."""
+        return self._board.has_queenside_castling_rights(chess.WHITE)
+
+    @property
+    def has_black_kingside_rights(self) -> bool:
+        """Check if Black can castle kingside."""
+        return self._board.has_kingside_castling_rights(chess.BLACK)
+
+    @property
+    def has_black_queenside_rights(self) -> bool:
+        """Check if Black can castle queenside."""
+        return self._board.has_queenside_castling_rights(chess.BLACK)
+
+    @property
+    def castling_rights_tuple(self) -> tuple[bool, bool, bool, bool]:
+        """
+        Returns all rights as a lightweight, fixed-size tuple.
+        Format: (WK, WQ, BK, BQ). Zero dictionary allocation overhead!
+        """
+        return (
+            self._board.has_kingside_castling_rights(chess.WHITE),
+            self._board.has_queenside_castling_rights(chess.WHITE),
+            self._board.has_kingside_castling_rights(chess.BLACK),
+            self._board.has_queenside_castling_rights(chess.BLACK),
+        )
     
     @property
     def board(self) -> chess.Board:
