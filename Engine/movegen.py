@@ -51,7 +51,15 @@ class MoveGenerator:
         for move in board.legal_moves:
             if not board.is_capture(move):
                 yield move
+    @staticmethod
+    def is_raw_castling(board: chess.Board, move: chess.Move) -> bool:
+        """Fast bitboard-level check to see if a raw move is a castling move."""
+        return board.is_castling(move)
 
+    @staticmethod
+    def is_raw_en_passant(board: chess.Board, move: chess.Move) -> bool:
+        """Fast bitboard-level check to see if a raw move is en passant."""
+        return board.is_en_passant(move)
     # -------------------------------------------------------------
     # BOUNDARY ZONE METHODS (Convenient API, Wrapped Objects)
     # -------------------------------------------------------------
