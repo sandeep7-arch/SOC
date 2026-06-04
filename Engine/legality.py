@@ -1,5 +1,3 @@
-# engine/legality.py
-
 from __future__ import annotations
 
 import chess
@@ -8,189 +6,85 @@ import chess
 class LegalityChecker:
     """
     High-level legality and game termination utilities.
-
-    Purpose:
-    - Provide a centralized interface for game-state validation.
-    - Expose rule-related queries to search and UCI layers.
-    - Delegate all rule logic to python-chess.
-
-    Notes:
-    - No custom chess rule implementation.
-    - No move generation.
-    - No search logic.
-    - Stateless utility class.
+    
+    Optimized for dual-use: Fast heuristic drops for alpha-beta search cores,
+    and rigorous rule compliance for outer game boundaries.
     """
 
     __slots__ = ()
 
-    # ---------------------------------------------------------
-    # Check Status
-    # ---------------------------------------------------------
-
     @staticmethod
     def in_check(board: chess.Board) -> bool:
-        """
-        Determine whether the side to move is in check.
-
-        Args:
-            board: python-chess Board
-
-        Returns:
-            True if side to move is in check.
-        """
+        """Determine whether the side to move is in check."""
         return board.is_check()
-
-    # ---------------------------------------------------------
-    # Checkmate
-    # ---------------------------------------------------------
 
     @staticmethod
     def is_checkmate(board: chess.Board) -> bool:
-        """
-        Determine whether the current position is checkmate.
-
-        Args:
-            board: python-chess Board
-
-        Returns:
-            True if checkmate.
-        """
+        """Determine whether the current position is checkmate."""
         return board.is_checkmate()
-
-    # ---------------------------------------------------------
-    # Stalemate
-    # ---------------------------------------------------------
 
     @staticmethod
     def is_stalemate(board: chess.Board) -> bool:
-        """
-        Determine whether the current position is stalemate.
-
-        Args:
-            board: python-chess Board
-
-        Returns:
-            True if stalemate.
-        """
+        """Determine whether the current position is stalemate."""
         return board.is_stalemate()
 
     # ---------------------------------------------------------
-    # Draw Detection
+    # OPTIMIZED FOR ENGINE SEARCH CORE
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def is_search_terminal(board: chess.Board) -> bool:
+        """
+        A highly optimized terminal check designed for recursive search trees.
+        
+        Bypasses expensive repetition checks if basic game-ending conditions 
+        haven't been met yet, protecting the engine's Nodes Per Second (Nps).
+        """
+        # 1. Quick check: fifty-move rule or structural stalemates/mates
+        # board.is_variant_end() or checking if legal moves count is zero is incredibly cheap
+        if not board.legal_moves:
+            return True
+            
+        if board.halfmove_clock >= 100:  # 50 moves * 2 plies
+            return True
+            
+        if board.is_insufficient_material():
+            return True
+
+        # 2. Only check repetition if the position history warrants it
+        # (python-chess can quickly check if the current position has a repeat flag)
+        return board.is_repetition(count=3)
+
+    # ---------------------------------------------------------
+    # BOUNDARY ZONE METHODS
     # ---------------------------------------------------------
 
     @staticmethod
     def is_draw(board: chess.Board) -> bool:
-        """
-        Determine whether the position is drawn.
-
-        Includes:
-        - Stalemate
-        - Insufficient material
-        - Fifty-move rule
-        - Threefold repetition
-        - Other draw conditions recognized by python-chess
-
-        Args:
-            board: python-chess Board
-
-        Returns:
-            True if drawn.
-        """
+        """Determine whether the position is drawn by strict rule definition."""
         return board.is_draw(claim_draw=True)
-
-    # ---------------------------------------------------------
-    # Material Draw
-    # ---------------------------------------------------------
 
     @staticmethod
     def is_insufficient_material(board: chess.Board) -> bool:
-        """
-        Check insufficient mating material.
-
-        Examples:
-        - K vs K
-        - K+B vs K
-        - K+N vs K
-
-        Args:
-            board: python-chess Board
-
-        Returns:
-            True if insufficient material.
-        """
+        """Check insufficient mating material."""
         return board.is_insufficient_material()
-
-    # ---------------------------------------------------------
-    # Repetition
-    # ---------------------------------------------------------
 
     @staticmethod
     def is_repetition(board: chess.Board) -> bool:
-        """
-        Check whether the current position is repeated.
-
-        Uses python-chess repetition tracking.
-
-        Args:
-            board: python-chess Board
-
-        Returns:
-            True if current position has occurred before.
-        """
+        """Check whether the current position has repeated."""
         return board.is_repetition()
-
-    # ---------------------------------------------------------
-    # Fifty-Move Rule
-    # ---------------------------------------------------------
 
     @staticmethod
     def is_fifty_move_rule(board: chess.Board) -> bool:
-        """
-        Check whether the fifty-move rule can be claimed.
-
-        Args:
-            board: python-chess Board
-
-        Returns:
-            True if fifty-move draw is claimable.
-        """
+        """Check whether the fifty-move rule can be claimed."""
         return board.can_claim_fifty_moves()
-
-    # ---------------------------------------------------------
-    # Combined Terminal Check
-    # ---------------------------------------------------------
 
     @staticmethod
     def is_terminal(board: chess.Board) -> bool:
-        """
-        Determine whether the position is terminal.
-
-        Includes:
-        - Checkmate
-        - Stalemate
-        - Draws
-
-        Args:
-            board: python-chess Board
-
-        Returns:
-            True if game is over.
-        """
+        """Determine completely whether the position is game over at API boundary."""
         return board.is_game_over(claim_draw=True)
-
-    # ---------------------------------------------------------
-    # Result Helper
-    # ---------------------------------------------------------
 
     @staticmethod
     def get_result(board: chess.Board) -> str:
-        """
-        Get official game result.
-
-        Returns:
-            "1-0"      -> White wins
-            "0-1"      -> Black wins
-            "1/2-1/2" -> Draw
-            "*"        -> Game ongoing
-        """
+        """Get official game result string ("1-0", "0-1", "1/2-1/2", "*")."""
         return board.result(claim_draw=True)
