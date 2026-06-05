@@ -1,3 +1,4 @@
+# engine/legality.py
 from __future__ import annotations
 
 import chess
@@ -5,27 +6,37 @@ import chess
 
 class LegalityChecker:
     """
-    High-level legality and game termination utilities.
-    
-    Optimized for dual-use: Fast heuristic drops for alpha-beta search cores,
-    and rigorous rule compliance for outer game boundaries.
+    High-level rule analyst and match termination manager.
+
+    Responsibilities:
+    - Evaluates checks, checkmates, and stalemates.
+    - Manages draw validation criteria (three-fold, material, 50-move rule).
+    - Acts as the sole authoritative referee for both search trees and outer APIs.
+
+    Strict Constraints:
+    - Entirely stateless utility class; utilizing __slots__ = () to prevent allocations.
+    - Contains absolute ownership of game-over queries across the engine.
     """
 
     __slots__ = ()
 
+    # ---------------------------------------------------------
+    # Primitive Condition Queries
+    # ---------------------------------------------------------
+
     @staticmethod
     def in_check(board: chess.Board) -> bool:
-        """Determine whether the side to move is in check."""
+        """Determine whether the active side to move is under check."""
         return board.is_check()
 
     @staticmethod
     def is_checkmate(board: chess.Board) -> bool:
-        """Determine whether the current position is checkmate."""
+        """Determine whether the current layout is checkmate."""
         return board.is_checkmate()
 
     @staticmethod
     def is_stalemate(board: chess.Board) -> bool:
-        """Determine whether the current position is stalemate."""
+        """Determine whether the current layout is stalemate."""
         return board.is_stalemate()
 
     # ---------------------------------------------------------
@@ -37,11 +48,10 @@ class LegalityChecker:
         """
         A highly optimized terminal check designed for recursive search trees.
         
-        Bypasses expensive repetition checks if basic game-ending conditions 
-        haven't been met yet, protecting the engine's Nodes Per Second (Nps).
+        Bypasses expensive historical repetition evaluations if foundational 
+        game-ending conditions haven't been met, preserving engine velocity (Nps).
         """
-        # 1. Quick check: fifty-move rule or structural stalemates/mates
-        # board.is_variant_end() or checking if legal moves count is zero is incredibly cheap
+        # 1. Evaluate primitive, instant lookups first (No allocation overhead)
         if not board.legal_moves:
             return True
             
@@ -51,40 +61,43 @@ class LegalityChecker:
         if board.is_insufficient_material():
             return True
 
-        # 2. Only check repetition if the position history warrants it
-        # (python-chess can quickly check if the current position has a repeat flag)
+        # 2. Heuristic bypass for three-fold repetition:
+        # A 3-fold repetition is mathematically impossible if less than 8 plies have occurred.
+        if len(board.move_stack) < 8:
+            return False
+
         return board.is_repetition(count=3)
 
     # ---------------------------------------------------------
-    # BOUNDARY ZONE METHODS
+    # BOUNDARY ZONE INTERFACE METHODS
     # ---------------------------------------------------------
 
     @staticmethod
     def is_draw(board: chess.Board) -> bool:
-        """Determine whether the position is drawn by strict rule definition."""
+        """Determine whether the position is drawn by strict rule or active claim."""
         return board.is_draw(claim_draw=True)
 
     @staticmethod
     def is_insufficient_material(board: chess.Board) -> bool:
-        """Check insufficient mating material."""
+        """Check for structural insufficient mating combinations on the board grids."""
         return board.is_insufficient_material()
 
     @staticmethod
     def is_repetition(board: chess.Board) -> bool:
-        """Check whether the current position has repeated."""
+        """Check whether the active layout matches a past identical state history."""
         return board.is_repetition()
 
     @staticmethod
     def is_fifty_move_rule(board: chess.Board) -> bool:
-        """Check whether the fifty-move rule can be claimed."""
+        """Check whether the fifty-move counter draw threshold can be claimed."""
         return board.can_claim_fifty_moves()
 
     @staticmethod
     def is_terminal(board: chess.Board) -> bool:
-        """Determine completely whether the position is game over at API boundary."""
+        """Determine completely whether the position is game over at the outer API boundary."""
         return board.is_game_over(claim_draw=True)
 
     @staticmethod
     def get_result(board: chess.Board) -> str:
-        """Get official game result string ("1-0", "0-1", "1/2-1/2", "*")."""
+        """Get the official tournament game outcome scoreboard string ("1-0", "0-1", "1/2-1/2", "*")."""
         return board.result(claim_draw=True)
