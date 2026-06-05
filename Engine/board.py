@@ -7,8 +7,17 @@ from typing import Optional, Union
 
 class ChessBoard:
     """
-    Thin wrapper around python-chess.Board.
-    Responsibilities: State management, FEN IO, and Make/Undo operations.
+    Authoritative state storage machine wrapping python-chess.Board.
+
+    Responsibilities:
+    - Pure position updates (push / pop)
+    - FEN data serialization and parsing
+    - Board mutations (reset / clone)
+    - Low-level data attribute accessors
+
+    Strict Constraints:
+    - Zero rule analysis logic (No game over, checkmate, or draw validation).
+    - Acts entirely as a data vault for other operational modules.
     """
 
     def __init__(self, fen: Optional[str] = None) -> None:
@@ -17,52 +26,49 @@ class ChessBoard:
         self._board = chess.Board(fen) if fen else chess.Board()
 
     def reset(self) -> None:
-        """Reset the board to the standard starting position."""
+        """Reset the internal board back to the standard starting layout."""
         self._board.reset()
 
     # ------------------------------------------------------------------
-    # FEN Operations (Absorbed from fen.py)
+    # FEN Serializations
     # ------------------------------------------------------------------
 
     def load_fen(self, fen: str) -> bool:
-        """
-        Loads a FEN string into the board state. 
-        Returns False if the FEN is structurally invalid.
-        """
+        """Loads a FEN string. Returns False if structurally invalid."""
         if not self.is_valid_fen(fen):
             return False
         self._board.set_fen(fen)
         return True
 
     def export_fen(self) -> str:
-        """Export the current board layout and metadata as a canonical FEN string."""
+        """Export the exact active layout snapshot as a canonical FEN string."""
         return self._board.fen()
 
     @staticmethod
     def is_valid_fen(fen_str: str) -> bool:
-        """
-        Fast validation of a FEN string using python-chess bitboard checking.
-        Does not spin up an entire board instance in memory.
-        """
+        """Fast bitboard validation of a FEN syntax string without memory allocation."""
         return chess.Board.is_valid(fen_str)
 
     @staticmethod
     def get_starting_fen() -> str:
-        """Returns the standard chess starting position FEN."""
+        """Returns the default chess starting layout FEN string."""
         return chess.STARTING_FEN
 
     # ------------------------------------------------------------------
-    # State Mutations (Make / Undo)
+    # State Mutations (Verbs)
     # ------------------------------------------------------------------
 
     def make_move(self, move: Union[str, chess.Move]) -> bool:
+        """
+        Executes a move onto the board state stack.
+        Performs a rapid validation filter check before mutating state.
+        """
         if isinstance(move, str):
             try:
                 move = chess.Move.from_uci(move)
             except ValueError:
                 return False
 
-        # Legality check is still performed here before pushing to the state
         if move not in self._board.legal_moves:
             return False
 
@@ -70,79 +76,65 @@ class ChessBoard:
         return True
 
     def undo_move(self) -> Optional[chess.Move]:
+        """Reverts the last move played on the stack. Returns None if history empty."""
         if not self._board.move_stack:
             return None
         return self._board.pop()
 
-    # ------------------------------------------------------------------
-    # Status / Rules Queries
-    # ------------------------------------------------------------------
-
-    def is_game_over(self) -> bool:
-        return self._board.is_game_over()
-
-    def get_result(self) -> str:
-        return self._board.result(claim_draw=True)
-
-    def get_turn(self) -> str:
-        return "white" if self._board.turn == chess.WHITE else "black"
-
     def clone(self) -> "ChessBoard":
+        """Generates a deep, independent memory clone of the entire match state."""
         cloned = ChessBoard()
         cloned._board = self._board.copy(stack=True)
         return cloned
 
     # ------------------------------------------------------------------
-    # State Metadata Accessors (Absorbed from state.py)
+    # State Primitives (Data Accessors)
     # ------------------------------------------------------------------
+
+    def get_turn_color(self) -> str:
+        """Returns string representation of the active player color."""
+        return "white" if self._board.turn == chess.WHITE else "black"
 
     @property
     def halfmove_clock(self) -> int:
-        """Number of halfmoves since the last pawn move or capture."""
+        """Tracks clock cycles since last capture/pawn push for fifty-move draw checks."""
         return self._board.halfmove_clock
 
     @property
     def fullmove_number(self) -> int:
-        """The current fullmove number of the game."""
+        """The absolute fullmove counter index of the active game."""
         return self._board.fullmove_number
 
     @property
     def en_passant_square(self) -> Optional[str]:
-        """Returns en passant target square in algebraic notation (e.g. 'e3')."""
+        """Returns the string square label of a valid en passant ghost capture square."""
         if self._board.ep_square is None:
             return None
         return chess.square_name(self._board.ep_square)
 
     # ------------------------------------------------------------------
-    # Castling Rights (Boundary API)
+    # Castling Rights Storage API
     # ------------------------------------------------------------------
 
     @property
     def has_white_kingside_rights(self) -> bool:
-        """Check if White can castle kingside."""
         return self._board.has_kingside_castling_rights(chess.WHITE)
 
     @property
     def has_white_queenside_rights(self) -> bool:
-        """Check if White can castle queenside."""
         return self._board.has_queenside_castling_rights(chess.WHITE)
 
     @property
     def has_black_kingside_rights(self) -> bool:
-        """Check if Black can castle kingside."""
         return self._board.has_kingside_castling_rights(chess.BLACK)
 
     @property
     def has_black_queenside_rights(self) -> bool:
-        """Check if Black can castle queenside."""
         return self._board.has_queenside_castling_rights(chess.BLACK)
 
     @property
     def castling_rights_tuple(self) -> tuple[bool, bool, bool, bool]:
-        """
-        Returns all rights as a lightweight, fixed-size tuple.
-        Format: (WK, WQ, BK, BQ). Zero dictionary allocation overhead!
-        """
+        """Returns all permission flags as a lightweight memory-fixed tuple."""
         return (
             self._board.has_kingside_castling_rights(chess.WHITE),
             self._board.has_queenside_castling_rights(chess.WHITE),
@@ -152,7 +144,7 @@ class ChessBoard:
 
     @property
     def board(self) -> chess.Board:
-        """Exposes the underlying board for the MoveGenerator and Search layers."""
+        """Direct access hook to underlying raw bitboard state for AI core engines."""
         return self._board
 
     def __str__(self) -> str:
