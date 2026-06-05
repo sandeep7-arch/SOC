@@ -1,29 +1,28 @@
+# engine/move.py
 from __future__ import annotations
 
-import chess
 from typing import Optional
+import chess
 
 
 class Move:
     """
-    Lightweight wrapper around python-chess.Move.
+    Lightweight, immutable data container wrapping a python-chess.Move object.
 
     Responsibilities:
-    - UCI serialization/deserialization
-    - Move representation and promotion support
-    - Equality, hashing, and border API translation
+    - UCI syntax serialization and deserialization ('e2e4', 'g1f3').
+    - Acts as a structured bridge token between internal layers and external boundaries.
+    - Captures move properties (squares, promotions) for move-ordering routines.
 
-    Notes:
-    - No move legality checks are performed here.
-    - Optimized with __slots__ for boundary translation efficiency.
+    Strict Constraints:
+    - Zero rule calculation, state alterations, or validation checks live here.
+    - Memory-optimized via __slots__ to eliminate variable dictionary overhead.
     """
 
     __slots__ = ("_move",)
 
     def __init__(self, move: chess.Move) -> None:
-        """
-        Initialize from a python-chess Move object.
-        """
+        """Initialize and seal a python-chess Move object variant."""
         self._move = move
 
     # ------------------------------------------------------------------
@@ -33,15 +32,21 @@ class Move:
     @classmethod
     def from_uci(cls, uci: str) -> "Move":
         """
-        Create Move from UCI string (e.g., 'e2e4', 'e7e8q').
+        Create a Move wrapper token out of a standard UCI coordinate string.
+        Raises ValueError if the text syntax structure is malformed.
         """
-        return cls(chess.Move.from_uci(uci))
+        try:
+            return cls(chess.Move.from_uci(uci))
+        except ValueError as exc:
+            raise ValueError(f"Malformed UCI move string format: {uci}") from exc
 
     @classmethod
-    def from_squares(cls, from_square: int, to_square: int, promotion: Optional[int] = None) -> "Move":
+    def from_squares(
+        cls, from_square: int, to_square: int, promotion: Optional[int] = None
+    ) -> "Move":
         """
-        Create a Move explicitly from square indices.
-        Useful for building user input moves or engine test suites.
+        Construct a Move explicitly from board matrix coordinate index values (0-63).
+        Highly effective for handling direct raw input or formatting custom test seeds.
         """
         return cls(chess.Move(from_square, to_square, promotion=promotion))
 
@@ -50,53 +55,53 @@ class Move:
     # ------------------------------------------------------------------
 
     def to_uci(self) -> str:
-        """Convert move to UCI notation string."""
+        """Convert the underlying move back into a canonical text-string identifier."""
         return self._move.uci()
 
     # ------------------------------------------------------------------
-    # Square Access
+    # Coordinate Index Selectors
     # ------------------------------------------------------------------
 
     @property
     def from_square(self) -> int:
-        """Source square index (0 to 63)."""
+        """The absolute source square grid matrix index integer value (0 to 63)."""
         return self._move.from_square
 
     @property
     def to_square(self) -> int:
-        """Destination square index (0 to 63)."""
+        """The absolute target square grid matrix index integer value (0 to 63)."""
         return self._move.to_square
 
     # ------------------------------------------------------------------
-    # Move Properties (Invaluable for move translation/ordering)
+    # Functional Property Flags (Vital for Alpha-Beta Search Orderings)
     # ------------------------------------------------------------------
 
     @property
     def promotion(self) -> Optional[int]:
-        """Promotion piece type constant, or None."""
+        """Returns the piece type identifier constant if a pawn promotes, else None."""
         return self._move.promotion
 
     @property
     def is_promotion(self) -> bool:
-        """Check whether move is a promotion move."""
+        """Boolean state flag showing if this action results in a piece promotion."""
         return self._move.promotion is not None
 
     @property
-    def null_move(self) -> bool:
-        """Checks if this is a null (empty) move pass."""
+    def is_null(self) -> bool:
+        """Returns True if this instance represents an empty null move pass sequence."""
         return not self._move
 
     # ------------------------------------------------------------------
-    # Python-Chess Compatibility
+    # Core Layer Unwrapping
     # ------------------------------------------------------------------
 
     @property
     def chess_move(self) -> chess.Move:
-        """Access underlying python-chess Move object directly."""
+        """Direct access hook to retrieve the underlying raw python-chess structural object."""
         return self._move
 
     # ------------------------------------------------------------------
-    # Equality / Hashing
+    # Identity Overrides
     # ------------------------------------------------------------------
 
     def __eq__(self, other: object) -> bool:
@@ -108,7 +113,7 @@ class Move:
         return hash(self._move)
 
     # ------------------------------------------------------------------
-    # String Representation
+    # String Format Renderers
     # ------------------------------------------------------------------
 
     def __str__(self) -> str:
