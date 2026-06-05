@@ -1,9 +1,7 @@
 # engine/game.py
 from __future__ import annotations
 
-import io
 from typing import Optional
-
 import chess
 import chess.pgn
 
@@ -18,14 +16,14 @@ class ChessGame:
     High-level game controller.
 
     Responsibilities:
-    - Manage overall game lifecycle
-    - Coordinate underlying board state mutations
-    - Apply and undo moves safely at the application boundary
-    - Expose game validation stats and handle PGN generation
+    - Manage overall game lifecycle.
+    - Coordinate underlying board state mutations via the board wrapper.
+    - Route boundary system moves (UCI/wrapped string formats) to state primitives.
+    - Expose unified status metadata for UI panels and export PGN sequences.
 
-    Notes:
-    - Acts as the main API interface for a GUI, CLI, or training environment.
-    - Zero performance critical code runs here; this is entirely business logic.
+    Strict Constraints:
+    - Zero algorithmic engine loops or math logic.
+    - Acts entirely as a proxy boundary layer passing calls down to the core modules.
     """
 
     def __init__(self) -> None:
@@ -36,7 +34,7 @@ class ChessGame:
     # ---------------------------------------------------------
 
     def start_new_game(self) -> None:
-        """Initialize a fresh chess game from the standard starting layout."""
+        """Initialize a fresh chess game environment from the standard starting layout."""
         self._board_wrapper = ChessBoard()
 
     # ---------------------------------------------------------
@@ -45,44 +43,44 @@ class ChessGame:
 
     def apply_move(self, move: str | Move | chess.Move) -> bool:
         """
-        Apply a move to the game.
+        Apply a move to the active match state.
 
         Args:
-            move: Can be a UCI string ("e2e4"), wrapped engine Move, 
-                  or raw chess.Move.
+            move: Can be a UCI string ("e2e4"), wrapped engine Move token, 
+                  or raw chess.Move struct.
 
         Returns:
-            True if the move was valid and applied, False otherwise.
+            True if the move was successfully validated and pushed, False otherwise.
         """
-        # If it's our wrapped Move token, unwrap its raw chess.Move core
+        # Unwrap our custom Move token if encountered at the boundary line
         if isinstance(move, Move):
-            target_move = move.chess_move
+            target_move: str | chess.Move = move.chess_move
         else:
             target_move = move
 
-        # Delegate execution down to our optimized board state manager
+        # Delegate pure state alteration directly down to the board instance
         return self._board_wrapper.make_move(target_move)
 
     def undo_move(self) -> Optional[chess.Move]:
         """
-        Undo the most recent move played.
+        Undo the most recent move played on the state stack history.
 
         Returns:
-            The raw chess.Move that was reverted, or None if stack is empty.
+            The raw chess.Move that was popped off, or None if the log is empty.
         """
         return self._board_wrapper.undo_move()
 
     # ---------------------------------------------------------
-    # Accessors & State Metadata
+    # Accessors & State Metadata Proxy Routing
     # ---------------------------------------------------------
 
     def get_board(self) -> ChessBoard:
-        """Get the authoritative board wrapper object."""
+        """Get the authoritative board data-vault wrapper object."""
         return self._board_wrapper
 
     def get_move_counters(self) -> tuple[int, int]:
         """
-        Get current game progression metrics.
+        Fetch the current game metric values.
         Returns:
             tuple: (halfmove_clock, fullmove_number)
         """
@@ -90,52 +88,56 @@ class ChessGame:
 
     def get_castling_rights(self) -> tuple[bool, bool, bool, bool]:
         """
-        Get current castling metadata instantly.
+        Fetch active castling permission flags instantly.
         Returns:
             tuple: (White Kingside, White Queenside, Black Kingside, Black Queenside)
         """
         return self._board_wrapper.castling_rights_tuple
 
+    def get_active_turn(self) -> str:
+        """Fetch human-readable text label of active side to move ("white"/"black")."""
+        return self._board_wrapper.get_turn_color()
+
     # ---------------------------------------------------------
-    # Move Generation Access (Boundary Zone)
+    # Move Generation Proxy Routing
     # ---------------------------------------------------------
 
     def get_legal_moves(self) -> list[Move]:
         """
-        Fetch all legal moves packaged as clean, wrapped objects.
-        Perfect for a UI dropdown or a human player move validation system.
+        Fetch all legal variations wrapped cleanly into API Move objects.
+        Ideal for external consumption like a visual match interface.
         """
         return MoveGenerator.generate_legal_moves(self._board_wrapper.board)
 
     # ---------------------------------------------------------
-    # Game Termination Rules
+    # Game Termination Proxies (Delegated to LegalityChecker)
     # ---------------------------------------------------------
 
     def is_game_over(self) -> bool:
-        """Check if the game has ended by any strict official chess rule."""
+        """Queries the rule referee to evaluate if the match is officially finished."""
         return LegalityChecker.is_terminal(self._board_wrapper.board)
 
     def get_result(self) -> str:
-        """Get the official game outcome score ("1-0", "0-1", "1/2-1/2", "*")."""
+        """Queries the referee to fetch the official game scoreboard outcome string."""
         return LegalityChecker.get_result(self._board_wrapper.board)
 
     # ---------------------------------------------------------
-    # PGN Export
+    # PGN Exporters
     # ---------------------------------------------------------
 
     def export_pgn(self) -> str:
         """
-        Export the entire move history as an official, standard PGN record.
+        Compiles the historical match log stack into an official PGN record.
 
         Returns:
-            A clean PGN format text string string.
+            Standard structural PGN string data text.
         """
         game = chess.pgn.Game()
         game.headers["Event"] = "Engine Architecture Match"
         game.headers["Result"] = self.get_result()
 
         node = game
-        # Step through the raw historical move log saved inside the stack
+        # Extract past moves sequentially from our clean underlying array stack
         for move in self._board_wrapper.board.move_stack:
             node = node.add_variation(move)
 
@@ -147,11 +149,11 @@ class ChessGame:
         return game.accept(exporter)
 
     # ---------------------------------------------------------
-    # Serialization Convenience
+    # Convenience FEN Serialization
     # ---------------------------------------------------------
 
     def current_fen(self) -> str:
-        """Returns the single-string FEN snapshot of the exact current position."""
+        """Returns the structural single-line FEN text string of the board state."""
         return self._board_wrapper.export_fen()
 
     def __repr__(self) -> str:
