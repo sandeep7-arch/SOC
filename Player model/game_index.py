@@ -13,7 +13,7 @@ class GameRecord:
     weaknesses_found : list = field(default_factory=list)
 
 
-class game_index:
+class GameIndex:
     def __init__(self):
         self.games: list[GameRecord] = []
 
@@ -45,7 +45,7 @@ class game_index:
         return round(total/len(self.games), 2)
     
 if __name__ == "__main__":
-    index = game_index()
+    index = GameIndex()
 
     # Simulate adding a few games
     index.add_game(GameRecord(
