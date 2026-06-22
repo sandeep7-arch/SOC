@@ -33,6 +33,7 @@ class Player(Base):
         return f"<Player(name = '{self.name}', rating = {self.rating}, games = {self.total_games})>"
     
     games = relationship("Game", back_populates="player")
+    mistakes = relationship("Mistake", back_populates="player")
     
 if __name__ == "__main__":
 

@@ -13,6 +13,7 @@ class Game(Base):
     __tablename__ = "games"
     id = Column(Integer, primary_key=True, autoincrement= True)
 
+    # Foreign key links this game to a player in the players table
     player_id = Column(Integer, ForeignKey("players.id"), nullable= False)
 
     result = Column(String, nullable=False)
@@ -23,10 +24,13 @@ class Game(Base):
     mistake_count = Column(Integer, default = 0)
     inaccuracy_count = Column(Integer, default = 0)
     
+    # Relationship lets access player directly from game object
     player = relationship("Player", back_populates = "games")
 
     def __repr__(self):
         return f"<Game(player_id = {self.player_id}, result = {self.result}, blunders = {self.blunder_count})>"
+    
+    mistakes = relationship("Mistake", back_populates="game")
     
 if __name__ == "__main__":
     from base import init_db, get_session
