@@ -36,6 +36,7 @@ class Player(Base):
     mistakes = relationship("Mistake", back_populates="player")
     vulnerability_vectors = relationship("VulnerabilityVector", back_populates="player")
     recommendations = relationship("Recommendation", back_populates="player")
+    preferences = relationship("EnginePreferences", back_populates="player", uselist=False)
     
 if __name__ == "__main__":
 
