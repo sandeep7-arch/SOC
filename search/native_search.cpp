@@ -354,6 +354,17 @@ inline bool check_detection(const NativeBoard& board) {
     return Legal::is_square_attacked(board, king_sq, static_cast<Color>(us ^ 1));
 }
 
+inline void pick_next_move(MoveList& move_list, int move_scores[], int start_index) {
+    int best_index = start_index;
+    for (int i = start_index + 1; i < move_list.count; ++i) {
+        if (move_scores[i] > move_scores[best_index]) best_index = i;
+    }
+    if (best_index != start_index) {
+        std::swap(move_scores[start_index], move_scores[best_index]);
+        std::swap(move_list.moves[start_index], move_list.moves[best_index]);
+    }
+}
+
 int native_quiescence(NativeBoard& board, NativeEvalState& eval_state, int alpha, int beta, int ply) {
     if (ply >= MAX_QPLY) return native_evaluate(board, eval_state);
     native_nodes++;
@@ -386,17 +397,8 @@ int native_quiescence(NativeBoard& board, NativeEvalState& eval_state, int alpha
         move_scores[i] = (NATIVE_PIECE_VALUES[victim_type] * 10) - NATIVE_PIECE_VALUES[attacker_type];
     }
 
-    // Sort moves inline
-    for (int i = 0; i < move_list.count - 1; ++i) {
-        for (int j = i + 1; j < move_list.count; ++j) {
-            if (move_scores[j] > move_scores[i]) {
-                std::swap(move_scores[i], move_scores[j]);
-                std::swap(move_list.moves[i], move_list.moves[j]);
-            }
-        }
-    }
-
     for (int i = 0; i < move_list.count; ++i) {
+        pick_next_move(move_list, move_scores, i);
         Move move = move_list.moves[i];
 
         if (!move_is_capture(move) && !in_check) continue;
@@ -499,15 +501,6 @@ int native_alpha_beta(
         );
     }
 
-    for (int i = 0; i < move_list.count - 1; ++i) {
-        for (int j = i + 1; j < move_list.count; ++j) {
-            if (move_scores[j] > move_scores[i]) {
-                std::swap(move_scores[i], move_scores[j]);
-                std::swap(move_list.moves[i], move_list.moves[j]);
-            }
-        }
-    }
-
     int legal_moves_counted = 0;
     int best_score = -INF;
     Move best_move_found;
@@ -527,6 +520,7 @@ int native_alpha_beta(
     }
 
     for (int i = 0; i < move_list.count; ++i) {
+        pick_next_move(move_list, move_scores, i);
         Move move = move_list.moves[i];
         const bool tactical_move = move_is_capture(move) || move_is_promotion(move);
 
@@ -697,7 +691,7 @@ extern "C" {
         native_nodes = 0;
         native_last_root_score = 0;
         order_manager.clear();
-        clear_native_eval_cache();
+        global_tt.start_new_search();
         time_manager.reset();
 
         bool is_white = (board.get_side_to_move() == WHITE);
@@ -785,7 +779,7 @@ extern "C" {
         native_nodes = 0;
         native_last_root_score = 0;
         order_manager.clear();
-        clear_native_eval_cache();
+        global_tt.start_new_search();
         time_manager.reset();
         time_manager.max_depth = std::max(1, max_depth);
         time_manager.set_fixed_move_time(std::max(1, movetime_ms));
@@ -859,5 +853,6 @@ extern "C" {
 
     EXPORT_API void set_quantized_inference_native(bool enabled) {
         NNUE::NNUEModel::set_quantized_inference(enabled);
+        clear_native_eval_cache();
     }
 } // extern "C"
