@@ -38,6 +38,8 @@ def classify_game_from_engine(moves_list, engine_path, depth = 8):
         info_before = engine.analysis(board,chess.engine.Limit(depth = depth))
         eval_before = info_before["score"].relative.score(mate_score = 10000)/100
 
+        best_move = info_before["pv"][0].uci() if "pv" in info_before else move_uci
+
         game_phase = get_game_phase(board)
         turn = board.turn
 
@@ -52,6 +54,7 @@ def classify_game_from_engine(moves_list, engine_path, depth = 8):
         results.append({
             "move_number": len(board.move_stack),
             "move" : move_uci,
+             "best_move":      best_move, 
             "game_phase" : game_phase,
             "eval_before" : eval_before,
             "eval_after" : eval_after,
