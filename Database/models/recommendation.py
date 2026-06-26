@@ -6,7 +6,7 @@ from sqlalchemy import Column, Integer, Float, String, ForeignKey, DateTime, Boo
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from base import Base
-from player import Player
+
 
 class Recommendation(Base):
     # Stores coaching recommendations given to a player. Each row denotes one recommendation after one game. Tracks whether the player acted on it and if it helped

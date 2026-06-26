@@ -3,7 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # Create a database file on disk
-engine = create_engine('sqlite:///chess_assistant.db', echo= True)
+engine = create_engine('sqlite:///chess_assistant.db', echo=False)
 
 # Base class that all our table models will inherit from
 Base = declarative_base()

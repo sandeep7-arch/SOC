@@ -5,11 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from base import Base
-from player import Player
-from game import Game
-from mistake import Mistake
-from vulnerability_vector import VulnerabilityVector
-from recommendation import Recommendation
+
 
 class EnginePreferences(Base):
     # Stores each player's app setting's permanently. Each row denotes player's preferences between sessions.

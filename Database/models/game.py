@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from base import Base
-from player import Player
+
 
 class Game(Base):
     # Database table for storing game records. Similar to game_index.py but stores permanently

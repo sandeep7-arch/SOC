@@ -5,8 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from base import Base
-from player import Player
-from game import Game
+
 
 class Mistake(Base):
     # Stores individual mistakes detected during game analysis. Each row denotes in mistake in one move of one game
