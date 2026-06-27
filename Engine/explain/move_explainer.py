@@ -1,28 +1,11 @@
 
 """
 move_explainer.py — Produces English Explanations for Any Chess Move
-=====================================================================
-YOUR MODULE: engine/explain/move_explainer.py
- 
-WHAT THIS FILE DOES:
---------------------
-This is the file that actually PRODUCES the English explanation
-a player sees after making a move. It connects:
- 
-    Module 1 (llm_client.py)     → talks to the LLM
-    Module 2 (prompt_builder.py) → builds the structured prompt
- 
-Think of it like this:
-    - Module 1 is the PHONE  (makes the call)
-    - Module 2 is the SCRIPT (what to say)
-    - Module 3 is the PERSON (decides when to call, what script to use,
-                              and packages the answer nicely)
- 
 THE FLOW:
  
     Engine data (scores, moves)
           ↓
-    MoveData object  (you create this from engine output)
+    MoveData object  (from engine output)
           ↓
     PromptBuilder    (Module 2 — builds the right prompt)
           ↓
@@ -31,11 +14,6 @@ THE FLOW:
     ExplanationResponse (clean, structured output)
           ↓
     UI / Dashboard   ( frontend consumes this)
- 
-WHAT THIS FILE CONTAINS:
-    1. ExplanationResponse  — the structured output object
-    2. MoveExplainer        — main class, explains any single move
-    3. Quick test at bottom — run to verify everything works
 """
  
 import time
