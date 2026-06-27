@@ -42,7 +42,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional, List
  
-# Import from YOUR other modules
+# Import from other modules
 from engine.explain.llm_client import LLMProvider, MockLLMProvider, get_llm
 from engine.explain.prompt_builder import (
     PromptBuilder,
@@ -60,38 +60,7 @@ from engine.explain.prompt_builder import (
 class ExplanationResponse:
     """
     The structured output that MoveExplainer returns.
- 
     This is what dashboard / frontend will consume.
-    It contains the explanation text PLUS all the metadata
-    needed to display it properly in the UI.
- 
-    Attributes:
-        explanation    : The main English explanation (2-3 sentences from LLM)
-        move_played    : The move that was made e.g. "e4e5"
-        category       : "blunder" / "mistake" / "inaccuracy" / "good" / "excellent"
-        severity       : "minor" / "moderate" / "serious" / "severe" / "catastrophic"
-        score_before   : Engine score before the move in centipawns
-        score_after    : Engine score after the move in centipawns
-        score_drop     : How many centipawns were lost (0 for good moves)
-        best_move      : What the engine recommended instead
-        score_before_words : Human-readable version of score_before
-        score_after_words  : Human-readable version of score_after
-        move_number    : Which move in the game this was
-        player_color   : "White" or "Black"
-        phase          : "opening" / "middlegame" / "endgame"
-        timestamp      : When this explanation was generated
-        llm_provider   : Which LLM was used (for debugging)
- 
-    Example output:
-        ExplanationResponse(
-            explanation = "Moving the pawn to e5 was a severe blunder...",
-            move_played = "e4e5",
-            category    = "blunder",
-            severity    = "severe",
-            score_drop  = 320,
-            best_move   = "d4",
-            ...
-        )
     """
     explanation:         str
     move_played:         str
@@ -113,14 +82,6 @@ class ExplanationResponse:
         """
         Convert to Python dictionary.
         Useful when sending data to a REST API or saving to JSON file.
- 
-        Returns:
-            dict: All fields as key-value pairs.
- 
-        Example:
-            response = explainer.explain_move(data)
-            data_dict = response.to_dict()
-            # Now you can: json.dumps(data_dict) to send via API
         """
         return {
             "explanation":        self.explanation,
@@ -143,15 +104,6 @@ class ExplanationResponse:
         """
         Convert to a nicely formatted markdown string.
         Perfect for displaying in a dashboard or terminal.
- 
-        Returns:
-            str: Formatted markdown text with emoji icons.
- 
-        Example output:
-            ## ⚠️ BLUNDER on Move 14
-            **White played:** e4e5
-            **Score change:** White has a clear advantage → Black has significant advantage
-            ...
         """
         # Choose icon based on category
         icons = {
@@ -191,10 +143,7 @@ class ExplanationResponse:
     def to_json(self) -> str:
         """
         Convert to JSON string. For API responses.
- 
-        Returns:
-            str: JSON-formatted string of all fields.
-        """
+         """
         import json
         return json.dumps(self.to_dict(), indent=2)
  
@@ -214,32 +163,6 @@ class ExplanationResponse:
 class MoveExplainer:
     """
     The main class that produces English explanations for chess moves.
- 
-    This is the class your teammates will use when integrating your
-    explain/ module with the rest of the project.
- 
-    HOW IT WORKS (dependency injection pattern):
-        You pass in an LLM provider and the class uses it.
-        The class itself never cares if it's Gemini, Claude, or Mock.
-        This is called "dependency injection" — you inject the dependency.
- 
-    USAGE:
-        # Today — fully offline, no API key
-        explainer = MoveExplainer(llm=MockLLMProvider())
- 
-        # Next week — real Gemini
-        explainer = MoveExplainer(llm=GeminiProvider(api_key="AIza..."))
- 
-        # The explain_move() call is IDENTICAL either way:
-        result = explainer.explain_move(move_data)
-        print(result.explanation)
- 
-    Args:
-        llm          : Any LLMProvider instance (Mock, Gemini, Claude, etc.)
-        player_level : "beginner" / "intermediate" / "advanced"
-                       Adjusts the language complexity of explanations.
-        max_tokens   : Max length of LLM response. 300 is plenty for 2-3 sentences.
-        use_retry    : If True, automatically retries failed API calls.
     """
  
     def __init__(
@@ -268,31 +191,8 @@ class MoveExplainer:
     def explain_move(self, data: MoveData) -> ExplanationResponse:
         """
         Explains any single chess move in plain English.
- 
-        This is the PRIMARY method your project will call.
         It automatically picks the right prompt type based on
         whether the move was good or bad.
- 
-        Args:
-            data : MoveData object with all engine info about the move.
-                   (score_before, score_after, best_move, category, etc.)
- 
-        Returns:
-            ExplanationResponse: Structured object with explanation + metadata.
- 
-        Raises:
-            ValueError: If MoveData is missing required fields.
- 
-        Example:
-            data = MoveData(
-                move_played="e4e5", score_before=120, score_after=-200,
-                best_move="d4", best_score=150, category="blunder",
-                piece="pawn", phase="middlegame", move_number=14,
-                player_color="White"
-            )
-            result = explainer.explain_move(data)
-            print(result.explanation)
-            # → "Moving the pawn to e5 gave up central control..."
         """
         # Step 1: Validate the input data
         self._validate_move_data(data)
@@ -345,19 +245,7 @@ class MoveExplainer:
         Calls explain_move() for each move in the list.
         Skips moves that fail (logs the error) so one bad move
         doesn't crash the whole analysis.
- 
-        Args:
-            moves : List of MoveData objects to explain.
- 
-        Returns:
-            List[ExplanationResponse]: One response per move.
- 
-        Example:
-            # Explain all blunders in a game
-            responses = explainer.explain_moves(game_summary.blunders)
-            for r in responses:
-                print(r.to_markdown())
-        """
+         """
         responses = []
  
         for i, move_data in enumerate(moves):
@@ -383,23 +271,6 @@ class MoveExplainer:
     ) -> List[ExplanationResponse]:
         """
         Finds and explains only the N most significant moves in a game.
- 
-        Instead of explaining every move, this picks the ones with the
-        largest score drops — the moments that actually decided the game.
-        Perfect for a "key moments" section in a dashboard.
- 
-        Args:
-            moves : All MoveData objects from a game (good and bad).
-            top_n : How many key moments to return. Default 3.
- 
-        Returns:
-            List[ExplanationResponse]: Top N most impactful moves, explained.
- 
-        Example:
-            all_moves = analyzer.get_all_moves(pgn)
-            highlights = explainer.explain_top_moments(all_moves, top_n=3)
-            for h in highlights:
-                print(h.to_markdown())
         """
         # Sort moves by score drop (biggest drop = most impactful)
         sorted_moves = sorted(
@@ -423,12 +294,6 @@ class MoveExplainer:
         Sends a prompt to the LLM and returns the response text.
  
         Uses retry logic if use_retry=True (handles rate limits automatically).
- 
-        Args:
-            prompt : The full structured prompt to send.
- 
-        Returns:
-            str: Raw text response from the LLM.
         """
         if self.use_retry:
             return self._llm.complete_with_retry(
@@ -443,16 +308,6 @@ class MoveExplainer:
     def _clean_response(self, text: str) -> str:
         """
         Cleans up the raw LLM response.
- 
-        LLMs sometimes return messy output with extra newlines,
-        markdown symbols, or leading/trailing spaces.
-        This strips all that so the UI gets clean text.
- 
-        Args:
-            text : Raw LLM response string.
- 
-        Returns:
-            str: Cleaned text, ready for display.
         """
         if not text:
             return "No explanation available."
@@ -478,12 +333,6 @@ class MoveExplainer:
         Checks that MoveData has all required fields before processing.
  
         Raises ValueError with a helpful message if something is missing.
- 
-        Args:
-            data : MoveData object to validate.
- 
-        Raises:
-            ValueError: If required fields are missing or invalid.
         """
         if not data.move_played:
             raise ValueError("MoveData.move_played cannot be empty.")
