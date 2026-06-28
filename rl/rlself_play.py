@@ -7,9 +7,11 @@ parsing, feature encoding, and NNUE training remain in the native engine stack.
 from __future__ import annotations
 
 import uuid
+import random
 from dataclasses import dataclass
 from typing import Any
 
+from rl.chess_terminal import repetition_key, terminal_draw_reason, terminal_result_for_no_move
 from rl.rlgame_logger import GameLogger
 from rl.rlreward import RewardEngine
 from uci import STARTPOS_FEN, UciPosition
@@ -51,6 +53,7 @@ class SelfPlayEngine:
         time_limit_per_move_ms: int = 50,
         max_search_depth: int = 8,
         start_fen: str = STARTPOS_FEN,
+        start_fens: list[str] | None = None,
     ) -> None:
         self.engine = engine
         self.reward_engine = reward_engine
@@ -59,17 +62,25 @@ class SelfPlayEngine:
         self.time_limit_ms = time_limit_per_move_ms
         self.max_depth = max_search_depth
         self.start_fen = start_fen
+        self.start_fens = start_fens or [start_fen]
 
     def execute_match(self) -> tuple[list[dict[str, Any]], float, str]:
         game_id = f"game_{uuid.uuid4().hex[:12]}"
-        position = UciPosition.from_fen(self.start_fen)
+        start_fen = random.choice(self.start_fens)
+        position = UciPosition.from_fen(start_fen)
         history: list[dict[str, Any]] = []
         previous_white_cp: float | None = None
 
         if hasattr(self.engine, "clear_caches"):
             self.engine.clear_caches()
 
+        repetitions = {repetition_key(position): 1}
         for ply in range(self.max_ply):
+            draw_reason = terminal_draw_reason(position, repetitions)
+            if draw_reason is not None:
+                self._log(game_id, history, 0.0, draw_reason)
+                return history, 0.0, draw_reason
+
             fen = position.to_fen()
             is_white_to_move = position.turn == "w"
             move, score_cp = self.engine.get_best_move_with_score(
@@ -78,8 +89,8 @@ class SelfPlayEngine:
                 time_limit_ms=float(self.time_limit_ms),
             )
 
-            if move in ("", "0000", "none", "null"):
-                result, reason = self._terminal_result(position.turn)
+            if move in ("", "0000", "none", "null", "(none)"):
+                result, reason = terminal_result_for_no_move(position)
                 self._log(game_id, history, result, reason)
                 return history, result, reason
 
@@ -110,15 +121,16 @@ class SelfPlayEngine:
                 return history, 0.0, reason
 
             previous_white_cp = white_cp
+            key = repetition_key(position)
+            repetitions[key] = repetitions.get(key, 0) + 1
+            draw_reason = terminal_draw_reason(position, repetitions)
+            if draw_reason is not None:
+                self._log(game_id, history, 0.0, draw_reason)
+                return history, 0.0, draw_reason
 
         reason = "Max ply threshold reached"
         self._log(game_id, history, 0.0, reason)
         return history, 0.0, reason
-
-    def _terminal_result(self, side_to_move: str) -> tuple[float, str]:
-        # Search returns no move for mate or stalemate. Without a legal move API exposed
-        # to Python, keep the training target neutral and preserve the reason explicitly.
-        return 0.0, f"No legal move for {'white' if side_to_move == 'w' else 'black'}"
 
     def _log(
         self,

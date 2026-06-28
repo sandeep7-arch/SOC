@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import random
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from rl.chess_terminal import model_score_for_no_move, repetition_key, terminal_draw_reason
 from uci import STARTPOS_FEN, UciPosition
 
 
@@ -26,6 +28,7 @@ class ArenaResult:
     wins: int
     draws: int
     losses: int
+    min_score: float = 0.55
 
     @property
     def games(self) -> int:
@@ -39,7 +42,7 @@ class ArenaResult:
 
     @property
     def passed(self) -> bool:
-        return self.score > 0.5
+        return self.score >= self.min_score
 
 
 class UciEngineProcess:
@@ -68,7 +71,9 @@ class UciEngineProcess:
         while True:
             line = self._readline()
             if line.startswith("bestmove "):
-                return line.split()[1]
+                parts = line.split()
+                move = parts[1] if len(parts) > 1 else "0000"
+                return "0000" if move == "(none)" else move
 
     def close(self) -> None:
         if self.proc.poll() is None:
@@ -106,9 +111,11 @@ class ArenaGate:
         champion_model: Path,
         candidate_model: Path,
         games: int = 10,
-        depth: int = 6,
-        movetime_ms: int = 50,
+        depth: int = 12,
+        movetime_ms: int = 100,
         max_ply: int = 120,
+        start_fens: list[str] | None = None,
+        min_score: float = 0.55,
     ) -> None:
         self.root = root
         self.engine_lib = engine_lib
@@ -118,6 +125,8 @@ class ArenaGate:
         self.depth = depth
         self.movetime_ms = movetime_ms
         self.max_ply = max_ply
+        self.start_fens = start_fens or [STARTPOS_FEN]
+        self.min_score = min_score
 
     def run(self) -> ArenaResult:
         candidate = UciEngineProcess(self.root, self.candidate_model, self.engine_lib)
@@ -142,7 +151,7 @@ class ArenaGate:
         finally:
             candidate.close()
             champion.close()
-        return ArenaResult(wins=wins, draws=draws, losses=losses)
+        return ArenaResult(wins=wins, draws=draws, losses=losses, min_score=self.min_score)
 
     def _play_game(
         self,
@@ -150,17 +159,24 @@ class ArenaGate:
         champion: UciEngineProcess,
         candidate_is_white: bool,
     ) -> float:
-        position = UciPosition.from_fen(STARTPOS_FEN)
+        position = UciPosition.from_fen(random.choice(self.start_fens))
+        repetitions = {repetition_key(position): 1}
         for _ in range(self.max_ply):
+            if terminal_draw_reason(position, repetitions) is not None:
+                return 0.0
             candidate_to_move = (position.turn == "w") == candidate_is_white
             engine = candidate if candidate_to_move else champion
             move = engine.bestmove(position.to_fen(), self.depth, self.movetime_ms)
             if move in ("0000", "none", "null", ""):
-                return 0.0
+                return model_score_for_no_move(position, candidate_to_move)
             try:
                 position.apply_uci_move(move)
             except ValueError:
                 return -1.0 if candidate_to_move else 1.0
+            key = repetition_key(position)
+            repetitions[key] = repetitions.get(key, 0) + 1
+            if terminal_draw_reason(position, repetitions) is not None:
+                return 0.0
 
         material = material_balance(position)
         if candidate_is_white:

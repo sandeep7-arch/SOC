@@ -29,6 +29,7 @@ from rl.rlreplay_buffer import ReplayBuffer
 from rl.rlreward import RewardEngine
 from rl.rlself_play import SelfPlayEngine
 from rl.stockfish_tools import StockfishSelfPlayEngine
+from uci import STARTPOS_FEN, UciPosition
 
 
 DEFAULT_ENGINE_LIB = ROOT / "native_engine.so"
@@ -37,6 +38,7 @@ DEFAULT_FEN_DATASET = ROOT / "data" / "fen_files" / "chessData.fen"
 DEFAULT_GAME_LOG_DIR = ROOT / "data" / "self_play_logs"
 DEFAULT_TRAINER = ROOT / "nnue_trainer"
 DEFAULT_RL_DIR = ROOT / "exports" / "rl"
+DEFAULT_RL_ARCHIVE_DIR = DEFAULT_RL_DIR
 DEFAULT_RESUME_DIR = ROOT / "checkpoints" / "resume" / "rl"
 DEFAULT_CHAMPION = DEFAULT_RL_DIR / "champion.bin"
 DEFAULT_CANDIDATE = DEFAULT_RL_DIR / "candidate.bin"
@@ -61,6 +63,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--engine-lib", type=Path, default=DEFAULT_ENGINE_LIB)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--fen-output", type=Path, default=DEFAULT_FEN_DATASET)
+    parser.add_argument("--start-fen", default=None, help="Single starting FEN for generated games.")
+    parser.add_argument("--start-fen-file", type=Path, default=None, help="Optional file of starting FENs, one per line.")
+    parser.add_argument(
+        "--val-fen",
+        type=Path,
+        default=None,
+        help="Optional held-out validation FEN passed to the native trainer.",
+    )
     parser.add_argument("--log-dir", type=Path, default=DEFAULT_GAME_LOG_DIR)
     parser.add_argument("--replace", action="store_true", help="Replace the FEN output instead of appending.")
     parser.add_argument("--stockfish-bin", type=Path, default=DEFAULT_STOCKFISH)
@@ -77,10 +87,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train", action="store_true", help="Run the native NNUE trainer after generation.")
     parser.add_argument("--trainer-bin", type=Path, default=DEFAULT_TRAINER)
     parser.add_argument("--trainer-checkpoint-dir", type=Path, default=DEFAULT_RESUME_DIR)
+    parser.add_argument(
+        "--trainer-mode",
+        choices=("continue", "finetune", "scratch"),
+        default="finetune",
+        help="Mode passed to the native trainer.",
+    )
     parser.add_argument("--trainer-lr", type=float, default=1e-5, help="Fine-tune learning rate.")
     parser.add_argument("--trainer-epochs", type=int, default=3, help="Fine-tune epochs.")
     parser.add_argument("--trainer-batch-size", type=int, default=8192, help="Native trainer batch size.")
     parser.add_argument("--trainer-limit", type=int, default=13_000_000, help="Maximum FEN rows loaded by the trainer.")
+    parser.add_argument("--trainer-val-limit", type=int, default=1_250_000, help="Maximum validation FEN rows loaded by the trainer.")
+    parser.add_argument(
+        "--trainer-eval-perspective",
+        choices=("white", "stm"),
+        default="white",
+        help="Perspective of FEN targets written by the replay buffer.",
+    )
     parser.add_argument(
         "--terminal-blend",
         type=float,
@@ -88,6 +111,7 @@ def parse_args() -> argparse.Namespace:
         help="Blend terminal game result into per-position search targets. Keep small, e.g. 0.05.",
     )
     parser.add_argument("--copy-retries", type=int, default=3, help="Retries for model copy/promotion I/O.")
+    parser.add_argument("--archive-dir", type=Path, default=DEFAULT_RL_ARCHIVE_DIR, help="Directory for timestamped RL candidates and gate outcomes.")
     parser.add_argument("--gate", action="store_true", help="Promote trained weights only if they beat the champion.")
     parser.add_argument("--champion-model", type=Path, default=DEFAULT_CHAMPION)
     parser.add_argument("--candidate-model", type=Path, default=DEFAULT_CANDIDATE)
@@ -95,8 +119,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gate-depth", type=int, default=4)
     parser.add_argument("--gate-movetime-ms", type=int, default=50)
     parser.add_argument("--gate-max-ply", type=int, default=120)
+    parser.add_argument("--gate-min-score", type=float, default=0.55, help="Minimum candidate score required for promotion.")
     parser.add_argument("--tt-size", type=int, default=2_000_000)
     parser.add_argument("--eval-cache-size", type=int, default=524_288)
+    parser.add_argument(
+        "--rl-framework",
+        choices=("value-guided", "policy-gradient", "actor-critic", "ppo", "alphazero"),
+        default="value-guided",
+        help="Optimization family recorded in training audits.",
+    )
     return parser.parse_args()
 
 
@@ -110,6 +141,14 @@ def main() -> int:
         raise ValueError("--trainer-batch-size must be positive")
     if args.trainer_limit <= 0:
         raise ValueError("--trainer-limit must be positive")
+    if args.trainer_val_limit <= 0:
+        raise ValueError("--trainer-val-limit must be positive")
+    if args.gate and args.gate_games <= 0:
+        raise ValueError("--gate-games must be positive when --gate is enabled")
+    if args.gate and args.gate_max_ply <= 0:
+        raise ValueError("--gate-max-ply must be positive when --gate is enabled")
+    if not 0.0 <= args.gate_min_score <= 1.0:
+        raise ValueError("--gate-min-score must be between 0.0 and 1.0")
     if not 0.0 <= args.terminal_blend <= 1.0:
         raise ValueError("--terminal-blend must be between 0.0 and 1.0")
     needs_native_engine = (
@@ -121,6 +160,7 @@ def main() -> int:
         raise FileNotFoundError(f"missing native engine library: {args.engine_lib}")
     if needs_native_engine and not args.model.exists():
         raise FileNotFoundError(f"missing NNUE model: {args.model}")
+    start_fens = load_start_fens(args.start_fen, args.start_fen_file)
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     training_audit: dict[str, object] = {
@@ -129,15 +169,24 @@ def main() -> int:
         "command": [sys.executable, *sys.argv],
         "model": str(args.model),
         "fen_output": str(args.fen_output),
+        "val_fen": str(args.val_fen) if args.val_fen is not None else None,
+        "start_fens": {
+            "count": len(start_fens),
+            "file": str(args.start_fen_file) if args.start_fen_file is not None else None,
+        },
         "requested_generator": args.generator,
         "stockfish_data_elo": args.stockfish_elo if args.generator == "stockfish" else None,
         "train": bool(args.train),
         "gate": bool(args.gate),
         "trainer": {
+            "rl_framework": args.rl_framework,
+            "mode": args.trainer_mode,
             "lr": args.trainer_lr,
             "epochs": args.trainer_epochs,
             "batch_size": args.trainer_batch_size,
             "limit": args.trainer_limit,
+            "val_limit": args.trainer_val_limit,
+            "eval_perspective": args.trainer_eval_perspective,
             "terminal_blend": args.terminal_blend,
         },
     }
@@ -161,6 +210,7 @@ def main() -> int:
             movetime_ms=args.stockfish_movetime_ms,
             threads=args.stockfish_threads,
             hash_mb=args.stockfish_hash_mb,
+            start_fens=start_fens,
         )
         print(f"[self-play] using Stockfish capped at Elo {args.stockfish_elo}", flush=True)
     else:
@@ -177,6 +227,7 @@ def main() -> int:
             max_ply=args.max_ply,
             time_limit_per_move_ms=args.movetime_ms,
             max_search_depth=args.depth,
+            start_fens=start_fens,
         )
         print("[self-play] using native model weights", flush=True)
 
@@ -225,7 +276,7 @@ def main() -> int:
         trainer_command = [
                 str(args.trainer_bin),
                 "--mode",
-                "finetune",
+                args.trainer_mode,
                 "--base-model",
                 str(args.model),
                 "--fen",
@@ -242,11 +293,25 @@ def main() -> int:
                 str(args.trainer_batch_size),
                 "--limit",
                 str(args.trainer_limit),
+                "--eval-perspective",
+                args.trainer_eval_perspective,
             ]
+        if args.val_fen is not None:
+            if not args.val_fen.exists():
+                raise FileNotFoundError(f"missing validation FEN file: {args.val_fen}")
+            trainer_command.extend(
+                [
+                    "--val-fen",
+                    str(args.val_fen),
+                    "--val-limit",
+                    str(args.trainer_val_limit),
+                ]
+            )
         print(
             "[rl] trainer settings: "
             f"lr={args.trainer_lr} epochs={args.trainer_epochs} "
-            f"batch_size={args.trainer_batch_size} limit={args.trainer_limit}",
+            f"batch_size={args.trainer_batch_size} limit={args.trainer_limit} "
+            f"val_fen={args.val_fen if args.val_fen is not None else 'auto-split'}",
             flush=True,
         )
         subprocess.run(
@@ -254,7 +319,13 @@ def main() -> int:
             cwd=str(ROOT),
             check=True,
         )
-        print(f"[rl] archived trained candidate -> {args.candidate_model}")
+        candidate_archive = archive_model(
+            args.candidate_model,
+            args.archive_dir / "candidates",
+            f"{run_id}.bin",
+            attempts=args.copy_retries,
+        )
+        print(f"[rl] archived trained candidate -> {candidate_archive}")
 
         gate_result = None
         candidate_promoted = False
@@ -268,6 +339,8 @@ def main() -> int:
                 depth=args.gate_depth,
                 movetime_ms=args.gate_movetime_ms,
                 max_ply=args.gate_max_ply,
+                start_fens=start_fens,
+                min_score=args.gate_min_score,
             )
             result = gate.run()
             gate_result = result
@@ -276,22 +349,41 @@ def main() -> int:
                 f"({result.wins}W/{result.draws}D/{result.losses}L)"
             )
             if result.passed:
+                promoted_archive = archive_model(
+                    args.candidate_model,
+                    args.archive_dir / "promoted",
+                    f"{run_id}_score_{result.score:.3f}.bin",
+                    attempts=args.copy_retries,
+                )
                 safe_copy_model(args.candidate_model, args.champion_model, attempts=args.copy_retries)
                 safe_copy_model(args.candidate_model, args.model, attempts=args.copy_retries)
                 candidate_promoted = True
-                print(f"[rl] candidate promoted -> {args.model}")
+                print(f"[rl] candidate promoted -> {args.model} (archive: {promoted_archive})")
             else:
+                rejected_archive = archive_model(
+                    args.candidate_model,
+                    args.archive_dir / "rejected",
+                    f"{run_id}_score_{result.score:.3f}.bin",
+                    attempts=args.copy_retries,
+                )
                 safe_copy_model(args.champion_model, args.model, attempts=args.copy_retries)
-                print(f"[rl] candidate rejected; champion restored -> {args.model}")
+                print(f"[rl] candidate rejected; champion restored -> {args.model} (archive: {rejected_archive})")
         else:
+            promoted_archive = archive_model(
+                args.candidate_model,
+                args.archive_dir / "promoted",
+                f"{run_id}_ungated.bin",
+                attempts=args.copy_retries,
+            )
             safe_copy_model(args.candidate_model, args.model, attempts=args.copy_retries)
             candidate_promoted = True
-            print(f"[rl] candidate accepted without gate -> {args.model}")
+            print(f"[rl] candidate accepted without gate -> {args.model} (archive: {promoted_archive})")
 
         training_audit.update(
             {
                 "training_finished_at_utc": datetime.now(timezone.utc).isoformat(),
                 "candidate_model": str(args.candidate_model),
+                "candidate_archive": str(candidate_archive),
                 "champion_model": str(args.champion_model),
                 "candidate_promoted": candidate_promoted,
             }
@@ -302,6 +394,7 @@ def main() -> int:
                 "draws": gate_result.draws,
                 "losses": gate_result.losses,
                 "score": gate_result.score,
+                "min_score": gate_result.min_score,
                 "passed": gate_result.passed,
             }
         print(f"[audit] source={generator} promoted={candidate_promoted}", flush=True)
@@ -317,6 +410,37 @@ def write_training_audit(path: Path, row: dict[str, object]) -> None:
     complete_row["audit_written_at_utc"] = datetime.now(timezone.utc).isoformat()
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(complete_row, sort_keys=True) + "\n")
+
+
+def load_start_fens(start_fen: str | None, start_fen_file: Path | None) -> list[str]:
+    fens: list[str] = []
+    if start_fen is not None:
+        fens.append(start_fen.strip())
+    if start_fen_file is not None:
+        if not start_fen_file.exists():
+            raise FileNotFoundError(f"missing start FEN file: {start_fen_file}")
+        with start_fen_file.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    fens.append(stripped)
+    if not fens:
+        fens.append(STARTPOS_FEN)
+
+    valid_fens: list[str] = []
+    for fen in fens:
+        try:
+            UciPosition.from_fen(fen)
+        except ValueError as exc:
+            raise ValueError(f"invalid start FEN: {fen}") from exc
+        valid_fens.append(fen)
+    return valid_fens
+
+
+def archive_model(src: Path, directory: Path, filename: str, attempts: int = 3) -> Path:
+    dst = directory / filename
+    safe_copy_model(src, dst, attempts=attempts)
+    return dst
 
 
 def safe_copy_model(src: Path, dst: Path, attempts: int = 3) -> None:

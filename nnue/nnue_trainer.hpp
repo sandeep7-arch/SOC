@@ -152,6 +152,7 @@ namespace NNUE {
         int current_epoch = 0;
         uint32_t global_step = 0;
         float best_val_loss = std::numeric_limits<float>::infinity();
+        bool last_epoch_interrupted = false;
 
         static size_t ft_row_offset(int shifted_feature) {
             return static_cast<size_t>(shifted_feature) * ACCUMULATOR_DIM;
@@ -159,6 +160,36 @@ namespace NNUE {
 
         static int shifted_feature_index(int raw_feature) {
             return raw_feature + 1;
+        }
+
+        static bool has_valid_model_snapshot(const ModelWeights& w) {
+            return w.ft_embedding_weights.size() == (FEATURE_DIM + 1) * ACCUMULATOR_DIM &&
+                   w.ft_bias.size() == ACCUMULATOR_DIM &&
+                   w.h1_weights.size() == HIDDEN1_DIM * INPUT_DIM &&
+                   w.h1_bias.size() == HIDDEN1_DIM &&
+                   w.h2_weights.size() == HIDDEN2_DIM * HIDDEN1_DIM &&
+                   w.h2_bias.size() == HIDDEN2_DIM &&
+                   w.out_weights.size() == OUTPUT_DIM * HIDDEN2_DIM &&
+                   w.out_bias.size() == OUTPUT_DIM;
+        }
+
+        static bool has_valid_optimizer_snapshot(const OptimizerState& opt) {
+            return opt.m_ft_w.size() == (FEATURE_DIM + 1) * ACCUMULATOR_DIM &&
+                   opt.v_ft_w.size() == (FEATURE_DIM + 1) * ACCUMULATOR_DIM &&
+                   opt.m_ft_b.size() == ACCUMULATOR_DIM &&
+                   opt.v_ft_b.size() == ACCUMULATOR_DIM &&
+                   opt.m_h1_w.size() == HIDDEN1_DIM * INPUT_DIM &&
+                   opt.v_h1_w.size() == HIDDEN1_DIM * INPUT_DIM &&
+                   opt.m_h1_b.size() == HIDDEN1_DIM &&
+                   opt.v_h1_b.size() == HIDDEN1_DIM &&
+                   opt.m_h2_w.size() == HIDDEN2_DIM * HIDDEN1_DIM &&
+                   opt.v_h2_w.size() == HIDDEN2_DIM * HIDDEN1_DIM &&
+                   opt.m_h2_b.size() == HIDDEN2_DIM &&
+                   opt.v_h2_b.size() == HIDDEN2_DIM &&
+                   opt.m_out_w.size() == OUTPUT_DIM * HIDDEN2_DIM &&
+                   opt.v_out_w.size() == OUTPUT_DIM * HIDDEN2_DIM &&
+                   opt.m_out_b.size() == OUTPUT_DIM &&
+                   opt.v_out_b.size() == OUTPUT_DIM;
         }
 
         void initialize_feature_shadow_from_globals() {
@@ -282,13 +313,19 @@ namespace NNUE {
             opt_out.m_out_b = optimizer->m_out_b; opt_out.v_out_b = optimizer->v_out_b;
         }
 
-        void apply_checkpoint_snapshots(const ModelWeights& w_in, const OptimizerState& opt_in) {
-            if (w_in.ft_embedding_weights.size() == (FEATURE_DIM + 1) * ACCUMULATOR_DIM &&
-                w_in.ft_bias.size() == ACCUMULATOR_DIM) {
-                ft_embedding_params = w_in.ft_embedding_weights;
-                ft_bias_params = w_in.ft_bias;
-                sync_feature_shadow_to_globals();
+        bool apply_checkpoint_snapshots(const ModelWeights& w_in, const OptimizerState& opt_in) {
+            if (!has_valid_model_snapshot(w_in)) {
+                std::cerr << " -> [Error] Checkpoint model tensor sizes do not match this build.\n";
+                return false;
             }
+            if (!has_valid_optimizer_snapshot(opt_in)) {
+                std::cerr << " -> [Error] Checkpoint optimizer tensor sizes do not match this build.\n";
+                return false;
+            }
+
+            ft_embedding_params = w_in.ft_embedding_weights;
+            ft_bias_params = w_in.ft_bias;
+            sync_feature_shadow_to_globals();
 
             std::memcpy(model_params.h1_weights, w_in.h1_weights.data(), HIDDEN1_DIM * INPUT_DIM * sizeof(float));
             std::memcpy(model_params.h1_bias, w_in.h1_bias.data(), HIDDEN1_DIM * sizeof(float));
@@ -311,6 +348,7 @@ namespace NNUE {
             optimizer->m_h2_b = opt_in.m_h2_b; optimizer->v_h2_b = opt_in.v_h2_b;
             optimizer->m_out_w = opt_in.m_out_w; optimizer->v_out_w = opt_in.v_out_w;
             optimizer->m_out_b = opt_in.m_out_b; optimizer->v_out_b = opt_in.v_out_b;
+            return true;
         }
 
     public:
@@ -342,6 +380,8 @@ namespace NNUE {
         float train_epoch() {
             size_t total_samples = train_buffer.size();
             if (total_samples == 0) return 0.0f;
+            extern std::atomic<bool> g_interrupted;
+            last_epoch_interrupted = false;
 
             size_t batch_size = GLOBAL_CONFIG.batch_size;
             auto samples = train_buffer.shuffled_snapshot();
@@ -369,6 +409,10 @@ namespace NNUE {
             std::vector<std::vector<float>> cache_layer2_out(batch_size, std::vector<float>(HIDDEN2_DIM));
 
             for (size_t offset = 0; offset < total_samples; offset += batch_size) {
+                if (g_interrupted.load()) {
+                    last_epoch_interrupted = true;
+                    break;
+                }
                 size_t actual_size = std::min(batch_size, total_samples - offset);
                 if (actual_size < 2) break;
 
@@ -550,6 +594,10 @@ namespace NNUE {
                                              h2_w_grads.data(), h2_b_grads.data(),
                                              out_w_grads.data(), out_b_grads.data());
                 global_step++;
+                if (g_interrupted.load()) {
+                    last_epoch_interrupted = true;
+                    break;
+                }
             }
 
             return epoch_loss_sum / static_cast<float>(std::max(size_t(1), iterations));
@@ -624,6 +672,11 @@ namespace NNUE {
                 optimizer->update_learning_rate(active_lr);
 
                 float train_loss = train_epoch();
+                if (last_epoch_interrupted || g_interrupted.load()) {
+                    std::cout << "\n -> Training interrupted after a batch. Saving resume checkpoint...\n";
+                    save_checkpoint(resume_checkpoint, false);
+                    break;
+                }
                 float val_loss = validate();
 
                 std::cout << "[Epoch " << (epoch + 1) << "/" << epochs << "] "
@@ -631,14 +684,14 @@ namespace NNUE {
 
                 if (val_buffer && val_loss < best_val_loss) {
                     best_val_loss = val_loss;
-                    save_checkpoint(best_checkpoint);
+                    save_checkpoint(best_checkpoint, true);
                     std::cout << " -> New best checkpoint: " << best_checkpoint
                               << " | best_val_loss=" << best_val_loss << "\n";
                 }
 
                 const std::string epoch_checkpoint =
                     (checkpoint_root / ("epoch_" + std::to_string(epoch + 1) + ".ckpt")).string();
-                save_checkpoint(resume_checkpoint);
+                save_checkpoint(resume_checkpoint, true);
             }
         }
 
@@ -670,16 +723,27 @@ namespace NNUE {
             return !f.bad();
         }
 
-        bool save_checkpoint(const std::string& path) const {
+        bool save_checkpoint(const std::string& path, bool epoch_completed = true) const {
             ModelWeights model_snapshot; OptimizerState optimizer_snapshot;
             capture_checkpoint_snapshots(model_snapshot, optimizer_snapshot);
-            std::unordered_map<std::string, float> metadata = { {"best_val_loss", best_val_loss} };
+            std::unordered_map<std::string, float> metadata = {
+                {"best_val_loss", best_val_loss},
+                {"epoch_completed", epoch_completed ? 1.0f : 0.0f}
+            };
             return CheckpointManager::save_checkpoint(path, current_epoch, global_step, model_snapshot, optimizer_snapshot, metadata);
         }
 
         bool resume(const std::string& path, bool fine_tuning = false) {
             CheckpointState loaded_state;
             if (!CheckpointManager::load_checkpoint(path, loaded_state)) return false;
+            if (!has_valid_model_snapshot(loaded_state.model_state)) {
+                std::cerr << " -> [Error] Checkpoint model tensor sizes do not match this build.\n";
+                return false;
+            }
+            if (!fine_tuning && !has_valid_optimizer_snapshot(loaded_state.optimizer_state)) {
+                std::cerr << " -> [Error] Checkpoint optimizer tensor sizes do not match this build.\n";
+                return false;
+            }
             current_epoch = loaded_state.epoch;
             global_step = loaded_state.step;
             if (loaded_state.metadata.find("best_val_loss") != loaded_state.metadata.end()) {
@@ -687,12 +751,9 @@ namespace NNUE {
             }
             
             if (fine_tuning) {
-                if (loaded_state.model_state.ft_embedding_weights.size() == (FEATURE_DIM + 1) * ACCUMULATOR_DIM &&
-                    loaded_state.model_state.ft_bias.size() == ACCUMULATOR_DIM) {
-                    ft_embedding_params = loaded_state.model_state.ft_embedding_weights;
-                    ft_bias_params = loaded_state.model_state.ft_bias;
-                    sync_feature_shadow_to_globals();
-                }
+                ft_embedding_params = loaded_state.model_state.ft_embedding_weights;
+                ft_bias_params = loaded_state.model_state.ft_bias;
+                sync_feature_shadow_to_globals();
                 std::memcpy(model_params.h1_weights, loaded_state.model_state.h1_weights.data(), HIDDEN1_DIM * INPUT_DIM * sizeof(float));
                 std::memcpy(model_params.h1_bias, loaded_state.model_state.h1_bias.data(), HIDDEN1_DIM * sizeof(float));
                 std::memcpy(model_params.h2_weights, loaded_state.model_state.h2_weights.data(), HIDDEN2_DIM * HIDDEN1_DIM * sizeof(float));
@@ -705,8 +766,10 @@ namespace NNUE {
                 global_step = 0;
                 best_val_loss = std::numeric_limits<float>::infinity();
             } else {
-                apply_checkpoint_snapshots(loaded_state.model_state, loaded_state.optimizer_state);
-                start_epoch = current_epoch + 1;
+                if (!apply_checkpoint_snapshots(loaded_state.model_state, loaded_state.optimizer_state)) return false;
+                auto completed_it = loaded_state.metadata.find("epoch_completed");
+                bool epoch_completed = (completed_it == loaded_state.metadata.end()) || completed_it->second > 0.5f;
+                start_epoch = epoch_completed ? current_epoch + 1 : current_epoch;
             }
             return true;
         }
@@ -714,7 +777,7 @@ namespace NNUE {
         bool restore_for_export(const std::string& path) {
             CheckpointState loaded_state;
             if (!CheckpointManager::load_checkpoint(path, loaded_state)) return false;
-            apply_checkpoint_snapshots(loaded_state.model_state, loaded_state.optimizer_state);
+            if (!apply_checkpoint_snapshots(loaded_state.model_state, loaded_state.optimizer_state)) return false;
             current_epoch = loaded_state.epoch;
             global_step = loaded_state.step;
             auto best_it = loaded_state.metadata.find("best_val_loss");

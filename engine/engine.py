@@ -2,7 +2,14 @@ import ctypes
 import os
 
 class ChessEngine:
-    def __init__(self, dll_path, model_path, tt_size=2000000, eval_cache_size=524288):
+    def __init__(
+        self,
+        dll_path,
+        model_path,
+        tt_size=2000000,
+        eval_cache_size=524288,
+        emit_search_info=False,
+    ):
         # Load the newly compiled unified shared library
         self.lib = ctypes.CDLL(os.path.abspath(dll_path))
 
@@ -31,12 +38,17 @@ class ChessEngine:
         if self._quantized_api_available:
             self.lib.set_quantized_inference_native.argtypes = [ctypes.c_bool]
             self.lib.set_quantized_inference_native.restype = None
+        self._search_info_api_available = hasattr(self.lib, "set_native_search_info_enabled")
+        if self._search_info_api_available:
+            self.lib.set_native_search_info_enabled.argtypes = [ctypes.c_bool]
+            self.lib.set_native_search_info_enabled.restype = None
 
         # Initialize NNUE weights and power-of-two memory allocations
         model_bytes = model_path.encode('utf-8')
         success = self.lib.load_nnue_model_and_caches(model_bytes, tt_size, eval_cache_size)
         if not success:
             raise RuntimeError("Engine initialization failed! Verify NNUE file path.")
+        self.set_search_info_enabled(emit_search_info)
 
     def get_best_move(self, fen: str, depth: int, time_limit_ms: float) -> str:
         # Prepare a mutable output buffer string for UCI moves (e.g. "e2e4\0")
@@ -98,3 +110,7 @@ class ChessEngine:
     def set_quantized_inference(self, enabled: bool) -> None:
         if self._quantized_api_available:
             self.lib.set_quantized_inference_native(ctypes.c_bool(enabled))
+
+    def set_search_info_enabled(self, enabled: bool) -> None:
+        if self._search_info_api_available:
+            self.lib.set_native_search_info_enabled(ctypes.c_bool(enabled))

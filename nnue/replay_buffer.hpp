@@ -9,13 +9,21 @@
 #include <algorithm>
 #include <random>
 #include <cassert>
+#include <cmath>
+#include <limits>
 #include <sstream>
+#include <stdexcept>
 #include <tuple>
 #include "board.hpp"
 #include "fen.hpp"
 #include "feature_encoder.hpp"  
 
 namespace NNUE {
+
+    enum class EvalPerspective {
+        White,
+        SideToMove
+    };
 
     struct Experience {
         std::vector<int> white_features; 
@@ -96,7 +104,9 @@ namespace NNUE {
         }
 
         // 🎯 FIX: Converted limit from 'int' to 'size_t' to support 12.5M+ rows cleanly without integer truncation issues
-        void load_fen_file(const std::string& filepath, size_t limit = 13000000) {
+        void load_fen_file(const std::string& filepath,
+                           size_t limit = 13000000,
+                           EvalPerspective eval_perspective = EvalPerspective::White) {
             std::ifstream file(filepath);
             if (!file.is_open()) {
                 std::cerr << " -> [Error] Failed to open FEN file: " << filepath << "\n";
@@ -104,8 +114,22 @@ namespace NNUE {
             }
 
             std::cout << " -> Streaming paired evaluations from: " << filepath << "\n";
+            std::cout << " -> Eval perspective: "
+                      << (eval_perspective == EvalPerspective::White ? "white" : "side-to-move")
+                      << "\n";
             std::string line;
             size_t count = 0;
+            size_t malformed_count = 0;
+            size_t parse_fail_count = 0;
+            size_t eval_fail_count = 0;
+            size_t clamped_count = 0;
+            size_t weighted_count = 0;
+            size_t white_to_move_count = 0;
+            size_t black_to_move_count = 0;
+            double target_sum = 0.0;
+            double abs_target_sum = 0.0;
+            float min_target = std::numeric_limits<float>::infinity();
+            float max_target = -std::numeric_limits<float>::infinity();
 
             std::vector<int> w_feats;
             std::vector<int> b_feats;
@@ -117,33 +141,89 @@ namespace NNUE {
                 }
                 if (line.empty()) continue;
 
-                size_t comma_pos = line.find_last_of(',');
-                if (comma_pos == std::string::npos) continue;
+                size_t last_comma_pos = line.find_last_of(',');
+                if (last_comma_pos == std::string::npos) {
+                    malformed_count++;
+                    continue;
+                }
 
-                std::string fen_str = line.substr(0, comma_pos);
-                std::string eval_str = line.substr(comma_pos + 1);
+                size_t prev_comma_pos = last_comma_pos == 0
+                    ? std::string::npos
+                    : line.find_last_of(',', last_comma_pos - 1);
+                std::string fen_str;
+                std::string eval_str;
+                std::string weight_str;
+                if (prev_comma_pos == std::string::npos) {
+                    fen_str = line.substr(0, last_comma_pos);
+                    eval_str = line.substr(last_comma_pos + 1);
+                } else {
+                    fen_str = line.substr(0, prev_comma_pos);
+                    eval_str = line.substr(prev_comma_pos + 1, last_comma_pos - prev_comma_pos - 1);
+                    weight_str = line.substr(last_comma_pos + 1);
+                }
 
                 try {
                     NativeBoard board;
-                    if (!FenParser::parse_fen(fen_str, board)) continue;
+                    if (!FenParser::parse_fen(fen_str, board)) {
+                        parse_fail_count++;
+                        continue;
+                    }
 
                     float cp = std::stof(eval_str);
                     float target_cp = std::clamp(cp, -4000.0f, 4000.0f);
+                    float sample_weight = 1.0f;
+                    if (!weight_str.empty()) {
+                        sample_weight = std::clamp(std::stof(weight_str), 0.05f, 4.0f);
+                        weighted_count++;
+                    }
+                    if (target_cp != cp) {
+                        clamped_count++;
+                    }
 
-                    if (board.get_side_to_move() == BLACK) {
+                    if (eval_perspective == EvalPerspective::White &&
+                        board.get_side_to_move() == BLACK) {
                         target_cp = -target_cp;
                     }
+                    if (board.get_side_to_move() == WHITE) {
+                        white_to_move_count++;
+                    } else {
+                        black_to_move_count++;
+                    }
+                    target_sum += target_cp;
+                    abs_target_sum += std::abs(target_cp);
+                    min_target = std::min(min_target, target_cp);
+                    max_target = std::max(max_target, target_cp);
+
                     w_feats.clear();
                     b_feats.clear();
                     FeatureEncoder::active_features(board, w_feats, b_feats);
 
-                    add(w_feats, b_feats, target_cp, (board.get_side_to_move() == WHITE), 1.0f, "csv_import", static_cast<int32_t>(count));
+                    add(w_feats, b_feats, target_cp, (board.get_side_to_move() == WHITE), sample_weight, "csv_import", static_cast<int32_t>(count));
                     count++;
-                } catch (...) {
+                } catch (const std::invalid_argument&) {
+                    eval_fail_count++;
+                    continue;
+                } catch (const std::out_of_range&) {
+                    eval_fail_count++;
                     continue;
                 }
             }
             std::cout << " -> Ingestion complete. Total buffer capacity used: " << current_size << "\n";
+            if (count > 0) {
+                std::cout << " -> Label stats: min=" << min_target
+                          << " max=" << max_target
+                          << " mean=" << (target_sum / static_cast<double>(count))
+                          << " mean_abs=" << (abs_target_sum / static_cast<double>(count))
+                          << " weighted_rows=" << weighted_count
+                          << " | stm white=" << white_to_move_count
+                          << " black=" << black_to_move_count << "\n";
+            }
+            if (malformed_count || parse_fail_count || eval_fail_count || clamped_count) {
+                std::cout << " -> Skipped/clamped rows: malformed=" << malformed_count
+                          << " fen_parse=" << parse_fail_count
+                          << " eval_parse=" << eval_fail_count
+                          << " clamped=" << clamped_count << "\n";
+            }
         }
 
         std::vector<Experience> sample(size_t batch_size) const {

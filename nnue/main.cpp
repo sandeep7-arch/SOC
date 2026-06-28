@@ -35,12 +35,17 @@ struct TrainOptions {
     fs::path fen_path = fs::path("data") / "fen_files" / "chessData.fen";
     std::string checkpoint_dir = (fs::path("checkpoints") / "resume").string();
     std::string export_dir = "exports";
-    fs::path base_model_path = fs::path("exports") / "nnue_inference.bin";
+    fs::path base_model_path = fs::path("exports") / "nnue_inference_m.bin";
     fs::path output_model_path;
+    fs::path val_fen_path;
     TrainingMode mode = TrainingMode::ContinueCheckpoint;
+    NNUE::EvalPerspective eval_perspective = NNUE::EvalPerspective::White;
     bool base_model_path_set = false;
     bool output_model_path_set = false;
+    bool val_fen_path_set = false;
+    bool allow_synthetic = true;
     size_t game_limit = 12500000;
+    size_t val_limit = 1250000;
 };
 
 void print_usage(const char* program) {
@@ -48,14 +53,18 @@ void print_usage(const char* program) {
         << "Usage: " << program << " [options]\n"
         << "  --mode continue|finetune|scratch\n"
         << "  --fen PATH\n"
+        << "  --val-fen PATH\n"
         << "  --base-model PATH\n"
         << "  --output-model PATH\n"
         << "  --checkpoint-dir PATH\n"
         << "  --export-dir PATH\n"
+        << "  --eval-perspective white|stm\n"
         << "  --lr VALUE\n"
         << "  --epochs N\n"
         << "  --batch-size N\n"
-        << "  --limit N\n";
+        << "  --limit N\n"
+        << "  --val-limit N\n"
+        << "  --no-synthetic\n";
 }
 
 bool parse_options(int argc, char** argv, TrainOptions& options) {
@@ -87,6 +96,11 @@ bool parse_options(int argc, char** argv, TrainOptions& options) {
             const char* value = require_value(arg);
             if (!value) return false;
             options.fen_path = value;
+        } else if (arg == "--val-fen") {
+            const char* value = require_value(arg);
+            if (!value) return false;
+            options.val_fen_path = value;
+            options.val_fen_path_set = true;
         } else if (arg == "--base-model") {
             const char* value = require_value(arg);
             if (!value) return false;
@@ -105,6 +119,18 @@ bool parse_options(int argc, char** argv, TrainOptions& options) {
             const char* value = require_value(arg);
             if (!value) return false;
             options.export_dir = value;
+        } else if (arg == "--eval-perspective") {
+            const char* value = require_value(arg);
+            if (!value) return false;
+            std::string perspective = value;
+            if (perspective == "white") {
+                options.eval_perspective = NNUE::EvalPerspective::White;
+            } else if (perspective == "stm" || perspective == "side-to-move") {
+                options.eval_perspective = NNUE::EvalPerspective::SideToMove;
+            } else {
+                std::cerr << "Unsupported eval perspective: " << perspective << "\n";
+                return false;
+            }
         } else if (arg == "--lr") {
             const char* value = require_value(arg);
             if (!value) return false;
@@ -121,6 +147,12 @@ bool parse_options(int argc, char** argv, TrainOptions& options) {
             const char* value = require_value(arg);
             if (!value) return false;
             options.game_limit = static_cast<size_t>(std::stoull(value));
+        } else if (arg == "--val-limit") {
+            const char* value = require_value(arg);
+            if (!value) return false;
+            options.val_limit = static_cast<size_t>(std::stoull(value));
+        } else if (arg == "--no-synthetic") {
+            options.allow_synthetic = false;
         } else {
             std::cerr << "Unknown option: " << arg << "\n";
             return false;
@@ -171,14 +203,39 @@ int main(int argc, char** argv) {
     std::cout << " -> Learning rate: " << NNUE::GLOBAL_CONFIG.learning_rate
               << " | epochs: " << NNUE::GLOBAL_CONFIG.num_epochs
               << " | batch_size: " << NNUE::GLOBAL_CONFIG.batch_size << "\n";
+    std::cout << " -> Dataset eval perspective: "
+              << (options.eval_perspective == NNUE::EvalPerspective::White ? "white" : "side-to-move")
+              << "\n";
+    if (options.val_fen_path_set) {
+        std::cout << " -> Validation FEN file: " << options.val_fen_path.string()
+                  << " | val_limit: " << options.val_limit << "\n";
+    }
+    if (options.mode == TrainingMode::FineTuneInference &&
+        fs::absolute(options.base_model_path).lexically_normal() ==
+            fs::absolute(options.output_model_path).lexically_normal()) {
+        std::cout << " -> Warning: fine-tune output path matches base model; export will overwrite the input model.\n";
+    }
+    if (options.mode != TrainingMode::ContinueCheckpoint) {
+        fs::path stale_resume = fs::path(options.checkpoint_dir) / "resume.ckpt";
+        fs::path stale_best = fs::path(options.checkpoint_dir) / "best.ckpt";
+        if (fs::exists(stale_resume) || fs::exists(stale_best)) {
+            std::cout << " -> Note: scratch/finetune ignores existing checkpoints in this directory, "
+                      << "but new checkpoints will overwrite resume.ckpt/best.ckpt.\n";
+        }
+    }
 
     std::cout << "[1/5] Ingesting source files from drive space...\n";
     
-    NNUE::ReplayBuffer full_dataset(20000000); 
+    NNUE::ReplayBuffer full_dataset(30000000); 
 
     if (fs::exists(options.fen_path)) {
         std::cout << " -> Appending raw evaluation snapshot records from: " << options.fen_path.string() << "\n";
-        full_dataset.load_fen_file(options.fen_path.string(), options.game_limit);
+        full_dataset.load_fen_file(options.fen_path.string(), options.game_limit, options.eval_perspective);
+    }
+
+    if (full_dataset.size() == 0 && !options.allow_synthetic) {
+        std::cerr << " -> [Error] No training data loaded and --no-synthetic was set.\n";
+        return 1;
     }
 
     if (full_dataset.size() == 0) {
@@ -198,18 +255,41 @@ int main(int argc, char** argv) {
     std::cout << " -> Success! Compiled " << full_dataset.size() << " unique training positions.\n";
 
     size_t total_items = full_dataset.size();
-    size_t train_size = static_cast<size_t>(0.9f * total_items);
-    size_t val_size = total_items - train_size;
+    size_t train_size = options.val_fen_path_set
+        ? total_items
+        : static_cast<size_t>(0.9f * total_items);
+    size_t val_size = options.val_fen_path_set
+        ? options.val_limit
+        : (total_items - train_size);
 
     NNUE::ReplayBuffer train_buffer(train_size + 10);
     NNUE::ReplayBuffer val_buffer(val_size + 10);
 
-    auto all_samples = full_dataset.shuffled_snapshot();
-    for (size_t i = 0; i < all_samples.size(); ++i) {
-        if (i < train_size) train_buffer.add_raw(std::move(all_samples[i]));
-        else val_buffer.add_raw(std::move(all_samples[i]));
+    if (options.val_fen_path_set) {
+        auto train_samples = full_dataset.shuffled_snapshot();
+        for (auto& sample : train_samples) {
+            train_buffer.add_raw(std::move(sample));
+        }
+        if (fs::exists(options.val_fen_path)) {
+            std::cout << " -> Loading held-out validation records from: "
+                      << options.val_fen_path.string() << "\n";
+            val_buffer.load_fen_file(options.val_fen_path.string(), options.val_limit, options.eval_perspective);
+            val_size = val_buffer.size();
+        } else {
+            std::cerr << " -> [Error] Validation FEN file not found: "
+                      << options.val_fen_path.string() << "\n";
+            return 1;
+        }
+    } else {
+        auto all_samples = full_dataset.shuffled_snapshot();
+        for (size_t i = 0; i < all_samples.size(); ++i) {
+            if (i < train_size) train_buffer.add_raw(std::move(all_samples[i]));
+            else val_buffer.add_raw(std::move(all_samples[i]));
+        }
     }
-    std::cout << " -> Data allocation: " << train_size << " training items | " << val_size << " validation items.\n";
+    std::cout << " -> Data allocation: " << train_buffer.size()
+              << " training items | " << val_buffer.size()
+              << " validation items.\n";
 
     NNUE::NNUEWDLLoss loss_function(400.0f, "mse", "mean");
 
@@ -235,10 +315,8 @@ int main(int argc, char** argv) {
         if (!newest_checkpoint.empty()) {
             std::cout << " -> Continuing interrupted run from checkpoint: " << newest_checkpoint << "\n";
             if (!trainer.resume(newest_checkpoint, false)) {
-                std::cout << " -> Checkpoint resume failed. Starting from freshly initialized weights.\n";
-                NNUE::FeatureTransformer::initialize_weights_from_scratch();
-                NNUE::NNUEModel::initialize_weights_from_scratch();
-                trainer.refresh_feature_transformer_from_globals();
+                std::cerr << " -> [Error] Checkpoint resume failed. Use --mode scratch with a fresh checkpoint-dir to restart.\n";
+                return 1;
             }
         } else {
             std::cout << " -> No checkpoint found. Commencing baseline training.\n";

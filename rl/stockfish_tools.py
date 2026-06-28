@@ -4,19 +4,25 @@ from __future__ import annotations
 
 import math
 import os
+import random
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from rl.chess_terminal import (
+    MATE_SCORE_CP,
+    model_score_for_no_move,
+    repetition_key,
+    terminal_draw_reason,
+    terminal_result_for_no_move as python_terminal_result_for_no_move,
+)
 from rl.rlgame_logger import GameLogger
 from rl.rlreward import RewardEngine
 from uci import STARTPOS_FEN, UciPosition
-
-
-MATE_SCORE_CP = 4000
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,10 @@ class StockfishProcess:
         threads: int = 1,
         hash_mb: int = 32,
     ) -> None:
+        self.requested_elo = elo
+        self.configured_elo = elo
+        self.uci_elo_min: int | None = None
+        self.uci_elo_max: int | None = None
         self.proc = subprocess.Popen(
             [str(stockfish_bin)],
             stdin=subprocess.PIPE,
@@ -69,11 +79,18 @@ class StockfishProcess:
         )
         self.last_score_cp = 0
         self._send("uci")
-        self._read_until("uciok")
+        self._read_uci_options()
         self._setoption("Threads", str(max(1, threads)))
         self._setoption("Hash", str(max(1, hash_mb)))
         self._setoption("UCI_LimitStrength", "true")
-        self._setoption("UCI_Elo", str(elo))
+        self.configured_elo = self._clamp_uci_elo(elo)
+        if self.configured_elo != elo:
+            print(
+                f"[stockfish] requested Elo {elo} is outside this build's "
+                f"UCI_Elo range; using {self.configured_elo}",
+                flush=True,
+            )
+        self._setoption("UCI_Elo", str(self.configured_elo))
         self._send("isready")
         self._read_until("readyok")
 
@@ -87,6 +104,42 @@ class StockfishProcess:
             limits.extend(["movetime", str(movetime_ms)])
         if not limits:
             limits = ["movetime", "50"]
+        self._send("go " + " ".join(limits))
+
+        while True:
+            line = self._readline()
+            if line.startswith("info "):
+                self._parse_score(line)
+            elif line.startswith("bestmove "):
+                parts = line.split()
+                move = parts[1] if len(parts) > 1 else "0000"
+                if move == "(none)":
+                    move = "0000"
+                return EngineMove(move=move, score_cp=self.last_score_cp)
+
+    def bestmove_clock(
+        self,
+        fen: str,
+        wtime_ms: int,
+        btime_ms: int,
+        winc_ms: int,
+        binc_ms: int,
+        depth: int | None = None,
+    ) -> EngineMove:
+        self.last_score_cp = 0
+        self._send(f"position fen {fen}")
+        limits = [
+            "wtime",
+            str(max(1, wtime_ms)),
+            "btime",
+            str(max(1, btime_ms)),
+            "winc",
+            str(max(0, winc_ms)),
+            "binc",
+            str(max(0, binc_ms)),
+        ]
+        if depth is not None and depth > 0:
+            limits.extend(["depth", str(depth)])
         self._send("go " + " ".join(limits))
 
         while True:
@@ -138,6 +191,40 @@ class StockfishProcess:
             if self._readline() == marker:
                 return
 
+    def _read_uci_options(self) -> None:
+        while True:
+            line = self._readline()
+            if line == "uciok":
+                return
+            self._parse_uci_option(line)
+
+    def _parse_uci_option(self, line: str) -> None:
+        if not line.startswith("option ") or " name UCI_Elo " not in line:
+            return
+        tokens = line.split()
+        if "min" in tokens:
+            index = tokens.index("min") + 1
+            if index < len(tokens):
+                try:
+                    self.uci_elo_min = int(tokens[index])
+                except ValueError:
+                    pass
+        if "max" in tokens:
+            index = tokens.index("max") + 1
+            if index < len(tokens):
+                try:
+                    self.uci_elo_max = int(tokens[index])
+                except ValueError:
+                    pass
+
+    def _clamp_uci_elo(self, elo: int) -> int:
+        configured = elo
+        if self.uci_elo_min is not None:
+            configured = max(configured, self.uci_elo_min)
+        if self.uci_elo_max is not None:
+            configured = min(configured, self.uci_elo_max)
+        return configured
+
     def _parse_score(self, line: str) -> None:
         tokens = line.split()
         if "score" not in tokens:
@@ -186,7 +273,33 @@ class NativeUciProcess:
             line = self._readline()
             if line.startswith("bestmove "):
                 parts = line.split()
-                return parts[1] if len(parts) > 1 else "0000"
+                move = parts[1] if len(parts) > 1 else "0000"
+                return "0000" if move == "(none)" else move
+
+    def bestmove_clock(
+        self,
+        fen: str,
+        depth: int,
+        wtime_ms: int,
+        btime_ms: int,
+        winc_ms: int,
+        binc_ms: int,
+    ) -> str:
+        self._send(f"position fen {fen}")
+        self._send(
+            "go "
+            f"depth {max(1, depth)} "
+            f"wtime {max(1, wtime_ms)} "
+            f"btime {max(1, btime_ms)} "
+            f"winc {max(0, winc_ms)} "
+            f"binc {max(0, binc_ms)}"
+        )
+        while True:
+            line = self._readline()
+            if line.startswith("bestmove "):
+                parts = line.split()
+                move = parts[1] if len(parts) > 1 else "0000"
+                return "0000" if move == "(none)" else move
 
     def close(self) -> None:
         if self.proc.poll() is None:
@@ -230,6 +343,7 @@ class StockfishSelfPlayEngine:
         threads: int = 1,
         hash_mb: int = 32,
         start_fen: str = STARTPOS_FEN,
+        start_fens: list[str] | None = None,
     ) -> None:
         self.stockfish_bin = stockfish_bin
         self.stockfish_elo = stockfish_elo
@@ -240,10 +354,12 @@ class StockfishSelfPlayEngine:
         self.threads = threads
         self.hash_mb = hash_mb
         self.start_fen = start_fen
+        self.start_fens = start_fens or [start_fen]
 
     def execute_match(self) -> tuple[list[dict[str, Any]], float, str]:
         game_id = f"stockfish_{uuid.uuid4().hex[:12]}"
-        position = UciPosition.from_fen(self.start_fen)
+        start_fen = random.choice(self.start_fens)
+        position = UciPosition.from_fen(start_fen)
         history: list[dict[str, Any]] = []
         previous_white_cp: float | None = None
         stockfish = StockfishProcess(
@@ -253,12 +369,18 @@ class StockfishSelfPlayEngine:
             hash_mb=self.hash_mb,
         )
         try:
+            repetitions = {repetition_key(position): 1}
             for ply in range(self.max_ply):
+                draw_reason = terminal_draw_reason(position, repetitions)
+                if draw_reason is not None:
+                    self._log(game_id, history, 0.0, draw_reason)
+                    return history, 0.0, draw_reason
+
                 fen = position.to_fen()
                 is_white_to_move = position.turn == "w"
                 selected = stockfish.bestmove(fen, None, self.movetime_ms)
                 if selected.move in ("", "0000", "none", "null", "(none)"):
-                    result, reason = terminal_result_for_no_move(position, stockfish)
+                    result, reason = terminal_result_for_no_move(position)
                     self._log(game_id, history, result, reason)
                     return history, result, reason
 
@@ -287,6 +409,12 @@ class StockfishSelfPlayEngine:
                     self._log(game_id, history, 0.0, reason)
                     return history, 0.0, reason
                 previous_white_cp = white_cp
+                key = repetition_key(position)
+                repetitions[key] = repetitions.get(key, 0) + 1
+                draw_reason = terminal_draw_reason(position, repetitions)
+                if draw_reason is not None:
+                    self._log(game_id, history, 0.0, draw_reason)
+                    return history, 0.0, draw_reason
         finally:
             stockfish.close()
 
@@ -320,6 +448,9 @@ class EloEstimator:
         native_movetime_ms: int = 50,
         stockfish_movetime_ms: int = 50,
         max_ply: int = 160,
+        time_control: str = "clock",
+        clock_ms: int = 30_000,
+        increment_ms: int = 1_000,
     ) -> None:
         self.root = root
         self.engine_lib = engine_lib
@@ -331,6 +462,9 @@ class EloEstimator:
         self.native_movetime_ms = native_movetime_ms
         self.stockfish_movetime_ms = stockfish_movetime_ms
         self.max_ply = max_ply
+        self.time_control = time_control
+        self.clock_ms = clock_ms
+        self.increment_ms = increment_ms
 
     def run(self) -> EloResult:
         native = NativeUciProcess(self.root, self.model_path, self.engine_lib)
@@ -382,23 +516,58 @@ class EloEstimator:
         native_is_white: bool,
     ) -> float:
         position = UciPosition.from_fen(STARTPOS_FEN)
+        repetitions = {repetition_key(position): 1}
+        white_ms = self.clock_ms
+        black_ms = self.clock_ms
         for _ in range(self.max_ply):
+            if terminal_draw_reason(position, repetitions) is not None:
+                return 0.0
             native_to_move = (position.turn == "w") == native_is_white
             fen = position.to_fen()
-            if native_to_move:
-                move = native.bestmove(fen, self.native_depth, self.native_movetime_ms)
+            started = time.perf_counter()
+            if self.time_control == "clock":
+                if native_to_move:
+                    move = native.bestmove_clock(
+                        fen,
+                        self.native_depth,
+                        white_ms,
+                        black_ms,
+                        self.increment_ms,
+                        self.increment_ms,
+                    )
+                else:
+                    move = stockfish.bestmove_clock(
+                        fen,
+                        white_ms,
+                        black_ms,
+                        self.increment_ms,
+                        self.increment_ms,
+                    ).move
             else:
-                move = stockfish.bestmove(
-                    fen,
-                    None,
-                    self.stockfish_movetime_ms,
-                ).move
-            if move in ("0000", "none", "null", ""):
+                if native_to_move:
+                    move = native.bestmove(fen, self.native_depth, self.native_movetime_ms)
+                else:
+                    move = stockfish.bestmove(
+                        fen,
+                        None,
+                        self.stockfish_movetime_ms,
+                    ).move
+            elapsed_ms = max(1, int((time.perf_counter() - started) * 1000.0))
+            if self.time_control == "clock":
+                if position.turn == "w":
+                    white_ms = max(1, white_ms - elapsed_ms + self.increment_ms)
+                else:
+                    black_ms = max(1, black_ms - elapsed_ms + self.increment_ms)
+            if move in ("0000", "none", "null", "", "(none)"):
                 return self._score_no_move(position, stockfish, native_to_move)
             try:
                 position.apply_uci_move(move)
             except ValueError:
                 return -1.0 if native_to_move else 1.0
+            key = repetition_key(position)
+            repetitions[key] = repetitions.get(key, 0) + 1
+            if terminal_draw_reason(position, repetitions) is not None:
+                return 0.0
 
         balance = material_balance(position)
         if not native_is_white:
@@ -415,9 +584,7 @@ class EloEstimator:
         stockfish: StockfishProcess,
         native_to_move: bool,
     ) -> float:
-        if stockfish.side_to_move_is_in_check(position.to_fen()):
-            return -1.0 if native_to_move else 1.0
-        return 0.0
+        return model_score_for_no_move(position, native_to_move)
 
 
 def estimate_elo_from_score(score: float, opponent_elo: int) -> float:
@@ -427,13 +594,9 @@ def estimate_elo_from_score(score: float, opponent_elo: int) -> float:
 
 def terminal_result_for_no_move(
     position: UciPosition,
-    stockfish: StockfishProcess,
+    stockfish: StockfishProcess | None = None,
 ) -> tuple[float, str]:
-    side_name = "white" if position.turn == "w" else "black"
-    if stockfish.side_to_move_is_in_check(position.to_fen()):
-        result = -float(MATE_SCORE_CP) if position.turn == "w" else float(MATE_SCORE_CP)
-        return result, f"Checkmate: no legal move for {side_name}"
-    return 0.0, f"Stalemate: no legal move for {side_name}"
+    return python_terminal_result_for_no_move(position)
 
 
 def wilson_score_interval(score: float, games: int, z: float = 1.96) -> tuple[float, float]:

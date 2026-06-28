@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <cstdint>
+#include <cstdio>
 
 namespace NNUE {
 
@@ -112,7 +113,8 @@ public:
             return false;
         }
 
-        std::ofstream f(filepath, std::ios::binary);
+        const std::string tmp_filepath = filepath + ".tmp";
+        std::ofstream f(tmp_filepath, std::ios::binary);
         if (!f.is_open()) return false;
 
         // 1. Version validation header serialization
@@ -155,7 +157,19 @@ public:
             f.write(reinterpret_cast<const char*>(&value), sizeof(value));
         }
 
-        return f.good();
+        const bool ok = f.good();
+        f.close();
+        if (!ok) {
+            std::remove(tmp_filepath.c_str());
+            return false;
+        }
+        try {
+            std::filesystem::rename(tmp_filepath, filepath);
+        } catch (...) {
+            std::remove(tmp_filepath.c_str());
+            return false;
+        }
+        return true;
     }
 
     // =========================================================================

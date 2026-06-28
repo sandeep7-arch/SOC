@@ -36,14 +36,21 @@ long long native_nodes = 0;
 auto search_start_time = std::chrono::steady_clock::now();
 double native_time_limit = 0.0;
 int native_last_root_score = 0;
+bool native_emit_search_info = true;
 
 constexpr int INF = 1000000;
 constexpr int MATE_SCORE = 30000;
+constexpr int MATE_THRESHOLD = 29000;
+constexpr int EVAL_SCORE_LIMIT = MATE_THRESHOLD - 1;
 constexpr int TIMEOUT_SIGNAL = -999999;
-constexpr int MAX_QPLY = 32;
+constexpr int MAX_QPLY = 8;
 constexpr int DELTA_MARGIN = 200;
-constexpr int FUTILITY_MARGIN = 120;
-constexpr int REVERSE_FUTILITY_MARGIN = 95;
+constexpr int FUTILITY_MARGIN = 140;
+constexpr int REVERSE_FUTILITY_MARGIN = 120;
+constexpr int BAD_CAPTURE_SEE_MARGIN = 0;
+constexpr int BAD_MAIN_CAPTURE_SEE_MARGIN = -120;
+constexpr int NULL_MOVE_MIN_DEPTH = 2;
+constexpr int UNVERIFIED_MATE_FALLBACK = 450;
 constexpr int NATIVE_PIECE_VALUES[] = { 100, 320, 330, 500, 900, 20000 };
 
 // Instantiate unified subsystem managers
@@ -68,7 +75,7 @@ struct SearchSettings {
     bool enable_futility = true;
     bool enable_reverse_futility = true;
     int lmr_depth = 3;
-    int lmr_move_number = 4;
+    int lmr_move_number = 3;
 };
 
 SearchSettings search_settings;
@@ -136,6 +143,37 @@ inline std::string move_to_uci(Move move) {
     char promo = get_promo_char(move_flags(move));
     if (promo) uci += promo;
     return uci;
+}
+
+inline int clamp_to_eval_band(int score) {
+    return std::max(-EVAL_SCORE_LIMIT, std::min(EVAL_SCORE_LIMIT, score));
+}
+
+inline int mate_distance_plies(int score) {
+    return std::max(1, MATE_SCORE - std::abs(score));
+}
+
+inline int mate_distance_moves(int score) {
+    return (mate_distance_plies(score) + 1) / 2;
+}
+
+inline int late_move_prune_threshold(int depth) {
+    return 2 + depth * 2;
+}
+
+inline void emit_uci_search_info(int depth, int score, long long nodes, int ms, long long nps, const std::string& pv) {
+    std::cout << "info depth " << depth;
+    if (std::abs(score) >= MATE_THRESHOLD) {
+        int mate = mate_distance_moves(score);
+        if (score < 0) mate = -mate;
+        std::cout << " score mate " << mate;
+    } else {
+        std::cout << " score cp " << clamp_to_eval_band(score);
+    }
+    std::cout << " nodes " << nodes
+              << " time " << (ms > 0 ? ms : 1)
+              << " nps " << nps
+              << " pv " << pv << std::endl;
 }
 
 inline bool find_legal_root_move(const NativeBoard& root_board, Move candidate, Move& selected) {
@@ -241,8 +279,15 @@ inline void update_eval_state_for_move(
     const MoveFlags::Flags flags = move_flags(move);
     const PieceType moving_piece = moving_piece_for_move(before, move);
 
-    if (moving_piece == KING || moving_piece == NONE) {
+    if (moving_piece == NONE) {
         child = parent;
+        return;
+    }
+
+    if (moving_piece == KING) {
+        NativeBoard after = before;
+        after.make_move(move);
+        refresh_eval_state(after, child);
         return;
     }
 
@@ -270,7 +315,14 @@ inline void apply_eval_state_for_move(const NativeBoard& before, Move move, Nati
     const MoveFlags::Flags flags = move_flags(move);
     const PieceType moving_piece = moving_piece_for_move(before, move);
 
-    if (moving_piece == KING || moving_piece == NONE) return;
+    if (moving_piece == NONE) return;
+
+    if (moving_piece == KING) {
+        NativeBoard after = before;
+        after.make_move(move);
+        refresh_eval_state(after, state);
+        return;
+    }
 
     remove_piece_features(state, from, moving_piece, us);
 
@@ -293,7 +345,12 @@ inline void undo_eval_state_for_move(const NativeBoard& restored_parent, Move mo
     const MoveFlags::Flags flags = move_flags(move);
     const PieceType moving_piece = moving_piece_for_move(restored_parent, move);
 
-    if (moving_piece == KING || moving_piece == NONE) return;
+    if (moving_piece == NONE) return;
+
+    if (moving_piece == KING) {
+        refresh_eval_state(restored_parent, state);
+        return;
+    }
 
     PieceType placed_piece = move_is_promotion(move) ? move_promotion_piece(move) : moving_piece;
     remove_piece_features(state, to, placed_piece, us);
@@ -341,6 +398,7 @@ int native_evaluate(const NativeBoard& board, const NativeEvalState& eval_state)
         white_to_move,
         1.0f
     );
+    centipawn_score = clamp_to_eval_band(centipawn_score);
 
     store_native_eval_cache(current_hash, white_to_move, centipawn_score);
     return centipawn_score;
@@ -354,7 +412,156 @@ inline bool check_detection(const NativeBoard& board) {
     return Legal::is_square_attacked(board, king_sq, static_cast<Color>(us ^ 1));
 }
 
-inline void pick_next_move(MoveList& move_list, int move_scores[], int start_index) {
+inline bool find_exact_legal_move(NativeBoard& board, Move candidate, Move& selected) {
+    MoveList move_list;
+    MoveGen::generate_moves(board, move_list);
+    for (int i = 0; i < move_list.count; ++i) {
+        Move move = move_list.moves[i];
+        if (move != candidate) continue;
+        if (!Legal::is_move_legal(board, move)) continue;
+        selected = move;
+        return true;
+    }
+    return false;
+}
+
+inline bool has_any_legal_move(NativeBoard& board) {
+    MoveList move_list;
+    MoveGen::generate_moves(board, move_list);
+    for (int i = 0; i < move_list.count; ++i) {
+        if (Legal::is_move_legal(board, move_list.moves[i])) return true;
+    }
+    return false;
+}
+
+inline bool is_checkmate_position(NativeBoard& board) {
+    return check_detection(board) && !has_any_legal_move(board);
+}
+
+inline bool pv_replays_to_claimed_mate(const NativeBoard& root_board, const NativePVLine& pv, int score) {
+    if (std::abs(score) < MATE_THRESHOLD || pv.count <= 0) return false;
+
+    const int claimed_plies = mate_distance_plies(score);
+    if (pv.count < claimed_plies) return false;
+
+    NativeBoard board = root_board;
+    for (int ply = 0; ply < claimed_plies; ++ply) {
+        Move legal_move;
+        if (!find_exact_legal_move(board, pv.moves[ply], legal_move)) return false;
+        board.make_move(legal_move);
+    }
+    return is_checkmate_position(board);
+}
+
+inline int sanitize_root_score(const NativeBoard& root_board, const NativePVLine& pv, int score) {
+    if (std::abs(score) < MATE_THRESHOLD) return score;
+    if (pv_replays_to_claimed_mate(root_board, pv, score)) return score;
+    return score > 0 ? UNVERIFIED_MATE_FALLBACK : -UNVERIFIED_MATE_FALLBACK;
+}
+
+inline bool has_non_pawn_material(const NativeBoard& board, Color side) {
+    return (board.get_piece_bb(side, KNIGHT)
+        | board.get_piece_bb(side, BISHOP)
+        | board.get_piece_bb(side, ROOK)
+        | board.get_piece_bb(side, QUEEN)) != EMPTY_BB;
+}
+
+inline Bitboard attackers_to_square(
+    Square sq,
+    Bitboard occupancy,
+    const Bitboard pieces[COLOR_NB][PIECE_TYPE_NB],
+    Color attacker
+) {
+    const Color defender = static_cast<Color>(attacker ^ 1);
+    Bitboard attackers = Attacks::get_pawn_attacks(defender, sq) & pieces[attacker][PAWN];
+    attackers |= Attacks::get_knight_attacks(sq) & pieces[attacker][KNIGHT];
+    attackers |= Attacks::get_king_attacks(sq) & pieces[attacker][KING];
+    attackers |= MoveGen::generate_sliding_attacks(sq, occupancy, MoveGen::bishop_offsets)
+        & (pieces[attacker][BISHOP] | pieces[attacker][QUEEN]);
+    attackers |= MoveGen::generate_sliding_attacks(sq, occupancy, MoveGen::rook_offsets)
+        & (pieces[attacker][ROOK] | pieces[attacker][QUEEN]);
+    return attackers;
+}
+
+inline bool least_valuable_attacker(
+    Square target,
+    Bitboard occupancy,
+    const Bitboard pieces[COLOR_NB][PIECE_TYPE_NB],
+    Color attacker,
+    PieceType& attacker_type,
+    Square& attacker_square
+) {
+    Bitboard attackers = attackers_to_square(target, occupancy, pieces, attacker);
+    for (PieceType pt : {PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING}) {
+        Bitboard candidates = attackers & pieces[attacker][pt];
+        if (candidates) {
+            attacker_type = pt;
+            attacker_square = bit_scan_forward(candidates);
+            return true;
+        }
+    }
+    return false;
+}
+
+inline int static_exchange_eval(const NativeBoard& board, Move move) {
+    const Color us = board.get_side_to_move();
+    const Color them = static_cast<Color>(us ^ 1);
+    const Square from = move_from(move);
+    const Square to = move_to(move);
+    const PieceType moving_piece = moving_piece_for_move(board, move);
+    if (moving_piece == NONE) return 0;
+
+    const PieceType captured_piece = captured_piece_for_move(board, move);
+    if (captured_piece == NONE && !move_is_ep(move)) return 0;
+
+    Bitboard pieces[COLOR_NB][PIECE_TYPE_NB] = {};
+    for (int color = 0; color < COLOR_NB; ++color) {
+        for (int pt = 0; pt < PIECE_TYPE_NB; ++pt) {
+            pieces[color][pt] = board.get_piece_bb(static_cast<Color>(color), static_cast<PieceType>(pt));
+        }
+    }
+
+    Bitboard occupancy = board.get_combined_occupancy();
+    const PieceType placed_piece = move_is_promotion(move) ? move_promotion_piece(move) : moving_piece;
+    const Square captured_square = move_is_ep(move)
+        ? static_cast<Square>(static_cast<int>(to) + (us == WHITE ? -8 : 8))
+        : to;
+
+    clear_bit(pieces[us][moving_piece], from);
+    clear_bit(occupancy, from);
+    if (captured_piece != NONE) {
+        clear_bit(pieces[them][captured_piece], captured_square);
+        if (captured_square != to) clear_bit(occupancy, captured_square);
+    }
+    set_bit(pieces[us][placed_piece], to);
+    set_bit(occupancy, to);
+
+    int gains[32];
+    int depth = 0;
+    gains[0] = NATIVE_PIECE_VALUES[captured_piece == NONE ? PAWN : captured_piece];
+
+    Color side = them;
+    PieceType target_piece = placed_piece;
+    while (depth + 1 < 32) {
+        PieceType attacker_type = NONE;
+        Square attacker_square = NO_SQ;
+        if (!least_valuable_attacker(to, occupancy, pieces, side, attacker_type, attacker_square)) break;
+
+        gains[++depth] = NATIVE_PIECE_VALUES[target_piece] - gains[depth - 1];
+        clear_bit(pieces[side][attacker_type], attacker_square);
+        clear_bit(occupancy, attacker_square);
+        target_piece = attacker_type;
+        side = static_cast<Color>(side ^ 1);
+    }
+
+    while (depth > 0) {
+        gains[depth - 1] = -std::max(-gains[depth - 1], gains[depth]);
+        --depth;
+    }
+    return gains[0];
+}
+
+inline void pick_next_move(MoveList& move_list, int move_scores[], int start_index, int secondary_scores[] = nullptr) {
     int best_index = start_index;
     for (int i = start_index + 1; i < move_list.count; ++i) {
         if (move_scores[i] > move_scores[best_index]) best_index = i;
@@ -362,6 +569,9 @@ inline void pick_next_move(MoveList& move_list, int move_scores[], int start_ind
     if (best_index != start_index) {
         std::swap(move_scores[start_index], move_scores[best_index]);
         std::swap(move_list.moves[start_index], move_list.moves[best_index]);
+        if (secondary_scores) {
+            std::swap(secondary_scores[start_index], secondary_scores[best_index]);
+        }
     }
 }
 
@@ -385,23 +595,19 @@ int native_quiescence(NativeBoard& board, NativeEvalState& eval_state, int alpha
     int move_scores[256] = {0};
     Color us = board.get_side_to_move();
 
-    // Fast inline capture evaluator using piece arrays
     for (int i = 0; i < move_list.count; ++i) {
         Move m = move_list.moves[i];
         if (!move_is_capture(m)) continue;
-
-        PieceType attacker_type = moving_piece_for_move(board, m);
-        PieceType victim_type = captured_piece_for_move(board, m);
-        if (attacker_type == NONE || victim_type == NONE) continue;
-
-        move_scores[i] = (NATIVE_PIECE_VALUES[victim_type] * 10) - NATIVE_PIECE_VALUES[attacker_type];
+        move_scores[i] = static_exchange_eval(board, m);
     }
 
     for (int i = 0; i < move_list.count; ++i) {
         pick_next_move(move_list, move_scores, i);
         Move move = move_list.moves[i];
+        const int see_score = move_scores[i];
 
         if (!move_is_capture(move) && !in_check) continue;
+        if (!in_check && move_is_capture(move) && see_score < BAD_CAPTURE_SEE_MARGIN) continue;
 
         if (!in_check && move_is_capture(move)) {
             // Basic Delta Pruning Check
@@ -482,12 +688,44 @@ int native_alpha_beta(
         return tt_score;
     }
 
+    Color us = board.get_side_to_move();
+    bool in_check = check_detection(board);
+    int static_eval = 0;
+    bool static_eval_valid = false;
+
+    if (!pv_node
+        && ply > 0
+        && depth >= NULL_MOVE_MIN_DEPTH
+        && !in_check
+        && std::abs(beta) < MATE_SCORE - 1000
+        && has_non_pawn_material(board, us)) {
+        static_eval = native_evaluate(board, eval_state);
+        static_eval_valid = true;
+        if (static_eval >= beta) {
+            NativePVLine null_pv;
+            const int reduction = 2 + depth / 3;
+            board.make_null_move();
+            int null_score = -native_alpha_beta(
+                board,
+                eval_state,
+                -beta,
+                -beta + 1,
+                std::max(0, depth - 1 - reduction),
+                ply + 1,
+                null_pv,
+                false
+            );
+            board.unmake_null_move();
+            if (null_score == TIMEOUT_SIGNAL) return TIMEOUT_SIGNAL;
+            if (null_score >= beta) return beta;
+        }
+    }
+
     MoveList move_list;
     MoveGen::generate_moves(board, move_list);
 
     int move_scores[256] = {0};
-    Color us = board.get_side_to_move();
-    bool in_check = check_detection(board);
+    int capture_see_scores[256] = {0};
 
     for (int i = 0; i < move_list.count; ++i) {
         Move m = move_list.moves[i];
@@ -495,10 +733,18 @@ int native_alpha_beta(
         PieceType victim_type = move_is_capture(m) ? captured_piece_for_move(board, m) : NONE;
         if (attacker_type == NONE) attacker_type = PAWN;
         if (victim_type == NONE) victim_type = PAWN;
-        move_scores[i] = order_manager.score_move(
+        int score = order_manager.score_move(
             m.data, tt_move_raw, ply, us,
             move_from(m), move_to(m), attacker_type, victim_type, move_flags(m), move_is_capture(m), move_is_ep(m)
         );
+        if (move_is_capture(m)) {
+            int see_score = static_exchange_eval(board, m);
+            capture_see_scores[i] = see_score;
+            score = (see_score >= 0)
+                ? score + see_score * 1024
+                : 1000000 + see_score * 1024;
+        }
+        move_scores[i] = score;
     }
 
     int legal_moves_counted = 0;
@@ -506,28 +752,50 @@ int native_alpha_beta(
     Move best_move_found;
     uint8_t tt_entry_flag = TT_ALPHA;
     NativePVLine child_pv;
-    const bool can_prune_quiets = search_settings.enable_futility && !pv_node && !in_check && depth <= 2;
-    int static_eval = 0;
-    if ((can_prune_quiets || (search_settings.enable_reverse_futility && !pv_node && !in_check && depth <= 3))
+    const bool can_prune_quiets = search_settings.enable_futility && !pv_node && !in_check && depth <= 3;
+    if ((can_prune_quiets || (search_settings.enable_reverse_futility && !pv_node && !in_check && depth <= 4))
         && std::abs(alpha) < MATE_SCORE - 1000
         && std::abs(beta) < MATE_SCORE - 1000) {
-        static_eval = native_evaluate(board, eval_state);
+        if (!static_eval_valid) {
+            static_eval = native_evaluate(board, eval_state);
+            static_eval_valid = true;
+        }
         if (search_settings.enable_reverse_futility
-            && depth <= 3
+            && depth <= 4
             && static_eval - (REVERSE_FUTILITY_MARGIN * depth) >= beta) {
             return static_eval;
         }
     }
 
     for (int i = 0; i < move_list.count; ++i) {
-        pick_next_move(move_list, move_scores, i);
+        pick_next_move(move_list, move_scores, i, capture_see_scores);
         Move move = move_list.moves[i];
+        const int ordered_score = move_scores[i];
+        const int see_score = capture_see_scores[i];
         const bool tactical_move = move_is_capture(move) || move_is_promotion(move);
+
+        if (!pv_node
+            && !in_check
+            && depth <= 2
+            && move_is_capture(move)
+            && !move_is_promotion(move)
+            && see_score < BAD_MAIN_CAPTURE_SEE_MARGIN) {
+            continue;
+        }
 
         if (can_prune_quiets
             && !tactical_move
             && legal_moves_counted > 0
             && static_eval + (FUTILITY_MARGIN * depth) <= alpha) {
+            continue;
+        }
+
+        if (!pv_node
+            && !in_check
+            && depth <= 3
+            && !tactical_move
+            && ordered_score <= 0
+            && legal_moves_counted >= late_move_prune_threshold(depth)) {
             continue;
         }
 
@@ -576,9 +844,13 @@ int native_alpha_beta(
                 && depth >= search_settings.lmr_depth
                 && legal_moves_counted >= search_settings.lmr_move_number
                 && !tactical_move
-                && !in_check
-                && !pv_node) {
-                reduction = 1 + (depth >= 6 && legal_moves_counted >= 8 ? 1 : 0);
+                && !in_check) {
+                reduction = 1
+                    + (depth >= 5 ? 1 : 0)
+                    + (legal_moves_counted >= 8 ? 1 : 0);
+                if (pv_node) {
+                    reduction = std::max(1, reduction - 1);
+                }
             }
             score = -native_alpha_beta(
                 board,
@@ -723,6 +995,7 @@ extern "C" {
             }
 
             if (score == TIMEOUT_SIGNAL) break;
+            score = sanitize_root_score(board, temp_pv, score);
 
             main_pv = temp_pv;
             last_score = score;
@@ -735,12 +1008,9 @@ extern "C" {
 
             int ms = static_cast<int>(time_manager.get_elapsed() * 1000);
             long long nps = (native_nodes * 1000LL) / static_cast<long long>(ms > 0 ? ms : 1);
-            std::cout << "info depth " << depth
-                      << " score cp " << score
-                      << " nodes " << native_nodes
-                      << " time " << (ms > 0 ? ms : 1)
-                      << " nps " << nps
-                      << " pv " << uci_pv_string << std::endl;
+            if (native_emit_search_info) {
+                emit_uci_search_info(depth, score, native_nodes, ms, nps, uci_pv_string);
+            }
 
             if (time_manager.check_soft_bound()) break;
         }
@@ -809,6 +1079,7 @@ extern "C" {
             }
 
             if (score == TIMEOUT_SIGNAL) break;
+            score = sanitize_root_score(board, temp_pv, score);
 
             main_pv = temp_pv;
             last_score = score;
@@ -821,12 +1092,9 @@ extern "C" {
 
             int ms = static_cast<int>(time_manager.get_elapsed() * 1000);
             long long nps = (native_nodes * 1000LL) / static_cast<long long>(ms > 0 ? ms : 1);
-            std::cout << "info depth " << depth
-                      << " score cp " << score
-                      << " nodes " << native_nodes
-                      << " time " << (ms > 0 ? ms : 1)
-                      << " nps " << nps
-                      << " pv " << uci_pv_string << std::endl;
+            if (native_emit_search_info) {
+                emit_uci_search_info(depth, score, native_nodes, ms, nps, uci_pv_string);
+            }
 
             if (time_manager.check_soft_bound()) break;
         }
@@ -849,6 +1117,10 @@ extern "C" {
 
     EXPORT_API int get_last_search_score_native() {
         return native_last_root_score;
+    }
+
+    EXPORT_API void set_native_search_info_enabled(bool enabled) {
+        native_emit_search_info = enabled;
     }
 
     EXPORT_API void set_quantized_inference_native(bool enabled) {

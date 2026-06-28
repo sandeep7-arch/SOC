@@ -66,6 +66,9 @@ namespace MoveGen {
         const Color them = static_cast<Color>(us ^ 1);
         const Bitboard us_occ = board.get_occupancy(us);
         const Bitboard them_occ = board.get_occupancy(them);
+        const Bitboard enemy_king = board.get_piece_bb(them, KING);
+        const Bitboard capturable_occ = them_occ & ~enemy_king;
+        const Bitboard legal_targets = ~(us_occ | enemy_king);
         const Bitboard empty_occ = ~board.get_combined_occupancy();
 
         // ------------------------------------------------------------------------
@@ -99,7 +102,7 @@ namespace MoveGen {
             }
 
             // Standard Pawn Captures
-            Bitboard p_attacks = Attacks::get_pawn_attacks(us, from) & them_occ;
+            Bitboard p_attacks = Attacks::get_pawn_attacks(us, from) & capturable_occ;
             while (p_attacks) {
                 Square cap_to = pop_lsb(p_attacks);
                 if (square_bb(cap_to) & promo_rank) {
@@ -128,10 +131,10 @@ namespace MoveGen {
         Bitboard knights = board.get_piece_bb(us, KNIGHT);
         while (knights) {
             Square from = pop_lsb(knights);
-            Bitboard targets = Attacks::get_knight_attacks(from) & ~us_occ;
+            Bitboard targets = Attacks::get_knight_attacks(from) & legal_targets;
             while (targets) {
                 Square to = pop_lsb(targets);
-                if (test_bit(them_occ, to)) {
+                if (test_bit(capturable_occ, to)) {
                     list.add(Move(from, to, MoveFlags::CAPTURE));
                 } else {
                     list.add(Move(from, to, MoveFlags::QUIET));
@@ -148,10 +151,10 @@ namespace MoveGen {
         Bitboard bishops = board.get_piece_bb(us, BISHOP);
         while (bishops) {
             Square from = pop_lsb(bishops);
-            Bitboard targets = generate_sliding_attacks(from, combined_occ, bishop_offsets) & ~us_occ;
+            Bitboard targets = generate_sliding_attacks(from, combined_occ, bishop_offsets) & legal_targets;
             while (targets) {
                 Square to = pop_lsb(targets);
-                list.add(Move(from, to, test_bit(them_occ, to) ? MoveFlags::CAPTURE : MoveFlags::QUIET));
+                list.add(Move(from, to, test_bit(capturable_occ, to) ? MoveFlags::CAPTURE : MoveFlags::QUIET));
             }
         }
 
@@ -159,10 +162,10 @@ namespace MoveGen {
         Bitboard rooks = board.get_piece_bb(us, ROOK);
         while (rooks) {
             Square from = pop_lsb(rooks);
-            Bitboard targets = generate_sliding_attacks(from, combined_occ, rook_offsets) & ~us_occ;
+            Bitboard targets = generate_sliding_attacks(from, combined_occ, rook_offsets) & legal_targets;
             while (targets) {
                 Square to = pop_lsb(targets);
-                list.add(Move(from, to, test_bit(them_occ, to) ? MoveFlags::CAPTURE : MoveFlags::QUIET));
+                list.add(Move(from, to, test_bit(capturable_occ, to) ? MoveFlags::CAPTURE : MoveFlags::QUIET));
             }
         }
 
@@ -171,10 +174,10 @@ namespace MoveGen {
         while (queens) {
             Square from = pop_lsb(queens);
             Bitboard targets = (generate_sliding_attacks(from, combined_occ, bishop_offsets) |
-                                generate_sliding_attacks(from, combined_occ, rook_offsets)) & ~us_occ;
+                                generate_sliding_attacks(from, combined_occ, rook_offsets)) & legal_targets;
             while (targets) {
                 Square to = pop_lsb(targets);
-                list.add(Move(from, to, test_bit(them_occ, to) ? MoveFlags::CAPTURE : MoveFlags::QUIET));
+                list.add(Move(from, to, test_bit(capturable_occ, to) ? MoveFlags::CAPTURE : MoveFlags::QUIET));
             }
         }
 
@@ -184,10 +187,10 @@ namespace MoveGen {
         Bitboard king = board.get_piece_bb(us, KING);
         if (king) {
             Square from = bit_scan_forward(king);
-            Bitboard targets = Attacks::get_king_attacks(from) & ~us_occ;
+            Bitboard targets = Attacks::get_king_attacks(from) & legal_targets;
             while (targets) {
                 Square to = pop_lsb(targets);
-                list.add(Move(from, to, test_bit(them_occ, to) ? MoveFlags::CAPTURE : MoveFlags::QUIET));
+                list.add(Move(from, to, test_bit(capturable_occ, to) ? MoveFlags::CAPTURE : MoveFlags::QUIET));
             }
 
             // Pseudo-legal castling (Checks ONLY path occupancy and rights flags)

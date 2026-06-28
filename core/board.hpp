@@ -289,6 +289,30 @@ public:
         update_occupancy();
     }
 
+    void make_null_move() {
+        undo_stack.push_back({Move(), castling_rights, ep_square, halfmove_clock, NONE, hash_key});
+
+        hash_key ^= Zobrist::ep[ep_square];
+        ep_square = NO_SQ;
+        hash_key ^= Zobrist::ep[ep_square];
+        hash_key ^= Zobrist::side_to_move;
+
+        side_to_move = static_cast<Color>(side_to_move ^ 1);
+        halfmove_clock++;
+    }
+
+    void unmake_null_move() {
+        assert(!undo_stack.empty());
+        const UndoState state = undo_stack.back();
+        undo_stack.pop_back();
+
+        side_to_move = static_cast<Color>(side_to_move ^ 1);
+        castling_rights = state.castling_rights;
+        ep_square = state.ep_square;
+        halfmove_clock = state.halfmove_clock;
+        hash_key = state.hash;
+    }
+
     // ============================================================================
     // Structural Inspection Getters
     // ============================================================================
