@@ -5,12 +5,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 sys.path.append(ROOT)
 
-from engine.explain.blunder_explainer import BlunderExplainer
-from engine.explain.commentary import CommentaryEngine, CommentaryStyle
-from engine.explain.lesson_extractor import LessonExtractor
-from engine.explain.llm_client import get_llm
-from engine.explain.move_explainer import MoveExplainer
-from engine.explain.prompt_builder import MoveData
+from Engine_Assistant.Explain.blunder_explainer import BlunderExplainer
+from Engine_Assistant.Explain.commentary import CommentaryEngine, CommentaryStyle
+from Engine_Assistant.Explain.lesson_extractor import LessonExtractor
+from Engine_Assistant.Explain.llm_client import get_llm
+from Engine_Assistant.Explain.move_explainer import MoveExplainer
+from Engine_Assistant.Explain.prompt_builder import MoveData
 
 
 def pawns_to_centipawns(score: float) -> int:

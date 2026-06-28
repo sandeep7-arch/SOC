@@ -1,7 +1,7 @@
 """
 llm_client.py — LLM Backend for Chess Explanation Engine
 =========================================================
-YOUR MODULE: engine/explain/llm_client.py
+YOUR MODULE: Engine_Assistant/Explain/llm_client.py
  
 This file is the ONLY place in the entire project that talks to an external LLM.
 Every other file (move_explainer, blunder_explainer, etc.) will import from here.
@@ -19,7 +19,7 @@ PROVIDERS INCLUDED:
     5. LocalLlamaProvider    — Ollama running locally (completely free, no internet)
  
 USAGE (copy this to understand the pattern):
-    from engine.explain.llm_client import get_llm, MockLLMProvider, GeminiProvider
+    from Engine_Assistant.Explain.llm_client import get_llm, MockLLMProvider, GeminiProvider
  
     # Today — no API key needed
     llm = MockLLMProvider()
@@ -634,6 +634,6 @@ Do NOT invent lines not given above. Base your explanation only on the data prov
     print("=" * 60)
     print("All tests passed! MockLLMProvider is working correctly.")
     print("\nNext step: Get a Gemini API key and test GeminiProvider.")
-    print("Run: python -c \"from engine.explain.llm_client import GeminiProvider; ...")
+    print("Run: python -c \"from Engine_Assistant.Explain.llm_client import GeminiProvider; ...")
     print("=" * 60)
  

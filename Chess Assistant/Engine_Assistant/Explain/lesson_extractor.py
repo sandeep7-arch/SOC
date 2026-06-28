@@ -1,7 +1,7 @@
 """
 lesson_extractor.py - Extracts Coaching Lessons from Game Mistakes
 ==================================================================
-YOUR MODULE: engine/explain/lesson_extractor.py
+YOUR MODULE: Engine_Assistant/Explain/lesson_extractor.py
  
 WHAT THIS FILE DOES:
 --------------------
@@ -31,8 +31,8 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict
 from collections import Counter
  
-from engine.explain.llm_client import LLMProvider, MockLLMProvider
-from engine.explain.prompt_builder import (
+from Engine_Assistant.Explain.llm_client import LLMProvider, MockLLMProvider
+from Engine_Assistant.Explain.prompt_builder import (
     MoveData, PromptBuilder,
     _score_to_words, _score_delta_to_severity,
     build_lesson_prompt

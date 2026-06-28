@@ -2,7 +2,7 @@
 """
 move_explainer.py — Produces English Explanations for Any Chess Move
 =====================================================================
-YOUR MODULE: engine/explain/move_explainer.py
+YOUR MODULE: Engine_Assistant/Explain/move_explainer.py
  
 WHAT THIS FILE DOES:
 --------------------
@@ -43,8 +43,8 @@ from dataclasses import dataclass, field
 from typing import Optional, List
  
 # Import from YOUR other modules
-from engine.explain.llm_client import LLMProvider, MockLLMProvider, get_llm
-from engine.explain.prompt_builder import (
+from Engine_Assistant.Explain.llm_client import LLMProvider, MockLLMProvider, get_llm
+from Engine_Assistant.Explain.prompt_builder import (
     PromptBuilder,
     MoveData,
     _score_to_words,
@@ -518,7 +518,7 @@ class MoveExplainer:
  
 
 # =============================================================================
-# QUICK TEST — Running: python engine/explain/move_explainer.py
+# QUICK TEST — Running: python Engine_Assistant/Explain/move_explainer.py
 # =============================================================================
  
 if __name__ == "__main__":

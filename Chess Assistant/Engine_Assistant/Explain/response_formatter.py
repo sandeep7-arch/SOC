@@ -1,7 +1,7 @@
 """
 response_formatter.py - Cleans and structures LLM output for UI
 ================================================================
-YOUR MODULE: engine/explain/response_formatter.py
+YOUR MODULE: Engine_Assistant/Explain/response_formatter.py
  
 WHAT THIS FILE DOES:
 --------------------
@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
  
-from engine.explain.prompt_builder import MoveData, _score_to_words, _score_delta_to_severity
+from Engine_Assistant.Explain.prompt_builder import MoveData, _score_to_words, _score_delta_to_severity
  
  
 # =============================================================================

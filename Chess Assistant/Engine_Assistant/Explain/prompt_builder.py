@@ -1,7 +1,7 @@
 """
 prompt_builder.py — Chess Engine Data → Structured LLM Prompts
 ===============================================================
-YOUR MODULE: engine/explain/prompt_builder.py
+YOUR MODULE: Engine_Assistant/Explain/prompt_builder.py
  
 WHY THIS FILE IS THE MOST IMPORTANT:
 -------------------------------------

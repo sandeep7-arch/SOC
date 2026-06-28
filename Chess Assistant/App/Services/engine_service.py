@@ -4,21 +4,37 @@ import sys
 import os
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.append(os.path.join(ROOT, 'Analysis'))
-sys.path.append(os.path.join(ROOT, 'Player model'))
+sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Analysis'))
+sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Player model'))
 sys.path.append(os.path.join(ROOT, 'Database'))
 sys.path.append(os.path.join(ROOT, 'Database', 'models'))
-sys.path.append(os.path.join(ROOT, 'Engine'))
+sys.path.append(ROOT)
 import chess
 
 USE_STOCKFISH = True
 USE_MOCK = False
 
-STOCKFISH_PATH = os.path.join(ROOT, "stockfish", "stockfish-windows-x86-64-avx2.exe")
+STOCKFISH_FILENAME = "stockfish-windows-x86-64-avx2.exe"
+
+
+def find_stockfish_path() -> str:
+    candidates = [
+        os.path.join(ROOT, "stockfish", STOCKFISH_FILENAME),
+        os.path.join(os.path.dirname(ROOT), "stockfish", STOCKFISH_FILENAME),
+    ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    return candidates[0]
+
+
+STOCKFISH_PATH = find_stockfish_path()
 
 
 # Real engine config — update paths when team lead provides files
-DLL_PATH   = os.path.join(ROOT, "engine", "search", "native_engine.dll")
+DLL_PATH   = os.path.join(ROOT, "Engine_Assistant", "search", "native_engine.dll")
 MODEL_PATH = os.path.join(ROOT, "exports", "nnue_weights.bin")
 
 _stockfish_instance = None

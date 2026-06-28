@@ -1,7 +1,7 @@
 """
 commentary.py - Live Chess Commentary Engine
 ============================================
-YOUR MODULE: engine/explain/commentary.py
+YOUR MODULE: Engine_Assistant/Explain/commentary.py
  
 WHAT THIS FILE DOES:
 --------------------
@@ -25,8 +25,8 @@ from dataclasses import dataclass
 from typing import Optional, List
 from enum import Enum
  
-from engine.explain.llm_client import LLMProvider, MockLLMProvider
-from engine.explain.prompt_builder import (
+from Engine_Assistant.Explain.llm_client import LLMProvider, MockLLMProvider
+from Engine_Assistant.Explain.prompt_builder import (
     MoveData, PromptBuilder,
     _score_to_words, _score_delta_to_severity
 )

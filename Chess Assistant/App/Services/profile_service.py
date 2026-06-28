@@ -6,7 +6,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Analysis'))
 sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Player model'))
 sys.path.append(os.path.join(ROOT, 'Database'))          
-sys.path.append(os.path.join(ROOT, 'Engine'))
+sys.path.append(ROOT)
 
 
 from session import get_db_session

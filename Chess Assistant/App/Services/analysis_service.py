@@ -1,14 +1,14 @@
 import sys
 import os
 
-# Get the root SOC/SOC/ directory (3 levels up from App/Services/)
+# Get the Chess Assistant project root.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Analysis'))
 sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Player model'))  # space in folder name is fine with os.path.join
 sys.path.append(os.path.join(ROOT, 'Database'))
 sys.path.append(os.path.join(ROOT, 'Database', 'models'))
-sys.path.append(os.path.join(ROOT, 'Engine'))
+sys.path.append(ROOT)
 
 import chess
 from engine_service import get_move_and_score, get_position_score

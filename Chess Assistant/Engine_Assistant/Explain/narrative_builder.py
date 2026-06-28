@@ -1,7 +1,7 @@
 """
 narrative_builder.py — Converts Game Data into a Story-Like Narrative
 ======================================================================
-YOUR MODULE: engine/explain/narrative_builder.py
+YOUR MODULE: Engine_Assistant/Explain/narrative_builder.py
  
 WHAT THIS FILE DOES:
 --------------------
@@ -25,9 +25,9 @@ WHAT IT USES:
     - LLMProvider (from llm_client.py) — sends the prompt
  
 USAGE:
-    from engine.explain.narrative_builder import NarrativeBuilder
-    from engine.explain.prompt_builder import GameData, MoveData
-    from engine.explain.llm_client import MockLLMProvider
+    from Engine_Assistant.Explain.narrative_builder import NarrativeBuilder
+    from Engine_Assistant.Explain.prompt_builder import GameData, MoveData
+    from Engine_Assistant.Explain.llm_client import MockLLMProvider
  
     builder = NarrativeBuilder(llm=MockLLMProvider())
  
@@ -49,8 +49,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
  
-from engine.explain.llm_client import LLMProvider, MockLLMProvider
-from engine.explain.prompt_builder import GameData, MoveData, build_game_summary_prompt, _score_to_words
+from Engine_Assistant.Explain.llm_client import LLMProvider, MockLLMProvider
+from Engine_Assistant.Explain.prompt_builder import GameData, MoveData, build_game_summary_prompt, _score_to_words
  
  
 # =============================================================================
@@ -349,7 +349,7 @@ class NarrativeBuilder:
  
  
 # =============================================================================
-# QUICK TEST — python engine/explain/narrative_builder.py
+# QUICK TEST — python Engine_Assistant/Explain/narrative_builder.py
 # =============================================================================
  
 if __name__ == "__main__":
@@ -357,7 +357,7 @@ if __name__ == "__main__":
     print("narrative_builder.py — Full Integration Test")
     print("=" * 65)
  
-    from engine.explain.llm_client import MockLLMProvider
+    from Engine_Assistant.Explain.llm_client import MockLLMProvider
  
     builder = NarrativeBuilder(llm=MockLLMProvider())
     print(f"\nBuilder: {builder}\n")
