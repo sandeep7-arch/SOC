@@ -3,14 +3,14 @@ import os
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-sys.path.append(os.path.join(ROOT, 'Analysis'))
-sys.path.append(os.path.join(ROOT, 'Player model'))
+sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Analysis'))
+sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Player model'))
 sys.path.append(os.path.join(ROOT, 'Database'))          
 sys.path.append(os.path.join(ROOT, 'Engine'))
 
 
 from session import get_db_session
-from models import Player, Game, Mistake, VulnerabilityVector
+from models import Player, Game, Mistake, Recommendation, VulnerabilityVector
 from player_profile import PlayerProfile
 from game_index import GameIndex, GameRecord
 from vulnerability_vector import build_vulnerability_vector
@@ -39,6 +39,10 @@ def save_game_to_db(player_id: int, game_analysis: dict, result: str, opponent_r
     game_analysis: output from analysis_service.analyze_full_game()
     """
     with get_db_session() as session:
+        player = session.query(Player).filter_by(id=player_id).first()
+        if not player:
+            raise ValueError(f"Player id {player_id} does not exist.")
+
         # Save game record
         game = Game(
             player_id=player_id,
@@ -52,6 +56,14 @@ def save_game_to_db(player_id: int, game_analysis: dict, result: str, opponent_r
         )
         session.add(game)
         session.flush()  # get game.id without full commit
+
+        player.total_games = (player.total_games or 0) + 1
+        if result == "win":
+            player.wins = (player.wins or 0) + 1
+        elif result == "loss":
+            player.losses = (player.losses or 0) + 1
+        else:
+            player.draws = (player.draws or 0) + 1
 
         # Save individual mistakes
         for move in game_analysis["moves"]:
@@ -75,6 +87,24 @@ def save_game_to_db(player_id: int, game_analysis: dict, result: str, opponent_r
 
         session.commit()
         return game.id
+
+
+def save_recommendations(player_id: int, recommendations: list[dict]):
+    """
+    Saves coaching recommendations shown to the player after a game.
+    """
+    with get_db_session() as session:
+        for rec in recommendations:
+            recommendation = Recommendation(
+                player_id=player_id,
+                weakness_category=rec.get("weakness"),
+                recommendation_text=(
+                    f"{rec.get('lesson_title', 'Training')}: "
+                    f"{rec.get('lesson_description', '')}"
+                ),
+                priority=rec.get("score", 0.5)
+            )
+            session.add(recommendation)
 
 
 def save_vulnerability_vector(player_id: int, vector: dict):

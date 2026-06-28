@@ -16,8 +16,6 @@ USE_MOCK = False
 
 STOCKFISH_PATH = os.path.join(ROOT, "stockfish", "stockfish-windows-x86-64-avx2.exe")
 
-_stockfish_instance = None
-
 
 # Real engine config — update paths when team lead provides files
 DLL_PATH   = os.path.join(ROOT, "engine", "search", "native_engine.dll")

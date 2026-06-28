@@ -10,9 +10,20 @@ sys.path.append(os.path.join(PROJECT_ROOT, "App", "Services"))
 sys.path.append(os.path.join(PROJECT_ROOT, "Database"))
 
 from analysis_service import analyze_full_game, analyze_single_move
+from coaching_service import (
+    build_coaching_report,
+    build_game_vulnerability_vector,
+    format_coaching_report,
+)
 from engine_service import close_stockfish, get_best_move, get_position_score
 from explain_service import explain_game_analysis, explain_single_move
-from profile_service import get_or_create_player, save_game_to_db
+from profile_service import (
+    get_or_create_player,
+    load_player_profile,
+    save_game_to_db,
+    save_recommendations,
+    save_vulnerability_vector,
+)
 from base import init_db
 from models import EnginePreferences, Game, Mistake, Player, Recommendation, VulnerabilityVector
 
@@ -161,6 +172,19 @@ def play_game(player_name: str, player_color: chess.Color, depth: int, save: boo
             print("Priority lesson:")
             print(f"{lesson.title}: {lesson.action_item}")
 
+        player_profile = {
+            "player_id": player_id,
+            "name": saved_player_name,
+            "rating": player.rating,
+            "total_games": player.total_games,
+            "wins": player.wins,
+            "losses": player.losses,
+            "draws": player.draws,
+            "win_rate": player.win_rate(),
+            "playing_style": player.playing_style,
+            "vulnerability_vector": build_game_vulnerability_vector(analysis),
+        }
+
         if save:
             game_id = save_game_to_db(
                 player_id,
@@ -168,7 +192,17 @@ def play_game(player_name: str, player_color: chess.Color, depth: int, save: boo
                 result=result,
                 opponent_rating=analysis.get("opponent_rating", 3200),
             )
+            save_vulnerability_vector(player_id, build_game_vulnerability_vector(analysis))
+            player_profile = load_player_profile(player_id) or player_profile
             print(f"Saved game to database with id {game_id}.")
+
+        coaching_report = build_coaching_report(player_profile, analysis)
+        print()
+        print(format_coaching_report(coaching_report))
+
+        if save:
+            save_recommendations(player_id, coaching_report["recommendations"])
+            print("Saved coaching recommendations to player history.")
     finally:
         close_stockfish()
 
@@ -182,7 +216,7 @@ def main():
     parser.add_argument(
         "--llm-provider",
         default="mock",
-        choices=["mock", "gemini", "claude", "openai", "ollama"],
+        choices=["mock", "gemini", "claude", "openai", "ollama","groq"],
         help="Explanation backend. Mock works offline.",
     )
     args = parser.parse_args()

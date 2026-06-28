@@ -233,106 +233,112 @@ class MockLLMProvider(LLMProvider):
 # PROVIDER 2: GeminiProvider (RECOMMENDED — free tier is generous)
 # =============================================================================
  
+class GroqProvider(LLMProvider):
+    DEFAULT_MODEL = "llama-3.1-8b-instant"
+
+    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
+        self.api_key = api_key or os.environ.get("GROQ_API_KEY")
+        if not self.api_key:
+            raise LLMConfigError("Groq API key not found! Set GROQ_API_KEY env variable.")
+        self.model_name = model
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            try:
+                from groq import Groq
+                self._client = Groq(api_key=self.api_key)
+            except ImportError:
+                raise LLMConfigError("groq package not installed! Fix: pip install groq")
+        return self._client
+
+    def complete(self, prompt: str, max_tokens: int = 500) -> str:
+        try:
+            client = self._get_client()
+            response = client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a chess coach explaining moves to students. Be concise and specific."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                max_tokens=max_tokens,
+                temperature=0.7
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            raise LLMError(f"Groq API error: {e}")
+
 class GeminiProvider(LLMProvider):
     """
     Calls Google's Gemini API to generate chess explanations.
- 
-    FREE TIER LIMITS (as of 2024):
+
+    FREE TIER LIMITS:
     - 15 requests per minute
-    - Unlimited requests per day
     - No credit card required
-    - Perfect for this project
- 
-    HOW TO GET YOUR API KEY:
-    1. Go to: https://makersuite.google.com/app/apikey
-    2. Sign in with Google account
-    3. Click "Create API Key"
-    4. Copy the key (starts with "AIza...")
- 
-    SETUP (run once in terminal):
-        pip install google-generativeai
- 
+
+    SETUP:
+        pip install google-genai
+
     USAGE:
         llm = GeminiProvider(api_key="AIza...")
-        # OR set env variable: export GEMINI_API_KEY="AIza..."
-        llm = GeminiProvider()  # reads from environment automatically
- 
-    Example:
-        llm = GeminiProvider(api_key="AIza...")
-        response = llm.complete("Explain why e4e5 was a blunder. Score dropped 320cp.")
-        print(response)
+        response = llm.complete("Explain why e4e5 was a blunder.")
     """
- 
-    DEFAULT_MODEL = "gemini-1.5-flash"  # Fast and free. Use "gemini-1.5-pro" for quality.
- 
+
+    DEFAULT_MODEL = "gemini-1.5-flash"
+
     def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
-        """
-        Initialize Gemini provider.
- 
-        Args:
-            api_key : Your Gemini API key. If None, reads GEMINI_API_KEY env variable.
-            model   : Which Gemini model to use. Default is flash (fast + free).
-        """
-        # Try to get key from argument first, then environment variable
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
- 
+
         if not self.api_key:
             raise LLMConfigError(
                 "Gemini API key not found!\n"
                 "Fix: Either pass api_key='YOUR_KEY' or set env variable:\n"
                 "     export GEMINI_API_KEY='YOUR_KEY'"
             )
- 
+
         self.model_name = model
-        self._client = None  # Lazy initialization (import only when needed)
- 
+        self._client = None
+
     def _get_client(self):
-        """Initialize the Gemini client (only once, on first use)."""
         if self._client is None:
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=self.api_key)
-                self._client = genai.GenerativeModel(self.model_name)
+                from google import genai  # new SDK
+                self._client = genai.Client(api_key=self.api_key)
             except ImportError:
                 raise LLMConfigError(
-                    "google-generativeai package not installed!\n"
-                    "Fix: pip install google-generativeai"
+                    "google-genai package not installed!\n"
+                    "Fix: pip install google-genai"
                 )
         return self._client
- 
+
     def complete(self, prompt: str, max_tokens: int = 500) -> str:
-        """
-        Send prompt to Gemini and return the text response.
- 
-        Args:
-            prompt     : The chess explanation prompt.
-            max_tokens : Approximate max length of response.
- 
-        Returns:
-            str: Gemini's explanation text.
- 
-        Raises:
-            LLMError: If API call fails.
-        """
         try:
+            from google import genai
+            from google.genai import types
+
             client = self._get_client()
- 
-            # Configure generation parameters
-            import google.generativeai as genai
-            config = genai.types.GenerationConfig(
-                max_output_tokens=max_tokens,
-                temperature=0.7,        # 0 = deterministic, 1 = creative. 0.7 is balanced.
-                top_p=0.9,
+
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=max_tokens,
+                    temperature=0.7,
+                    top_p=0.9,
+                )
             )
- 
-            response = client.generate_content(prompt, generation_config=config)
- 
-            # Extract text from response
+
             if response.text:
                 return response.text.strip()
             else:
-                raise LLMError("Gemini returned empty response. Check your prompt.")
- 
+                raise LLMError("Gemini returned empty response.")
+
         except Exception as e:
             if "API_KEY_INVALID" in str(e):
                 raise LLMConfigError(f"Invalid Gemini API key: {e}")
@@ -568,6 +574,7 @@ def get_llm(provider: str = "mock", **kwargs) -> LLMProvider:
         "claude": ClaudeProvider,
         "openai": OpenAIProvider,
         "ollama": LocalLlamaProvider,
+        "groq":   GroqProvider,
     }
  
     provider_lower = provider.lower()
