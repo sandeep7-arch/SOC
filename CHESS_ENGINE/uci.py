@@ -16,7 +16,17 @@ from engine.engine import ChessEngine
 
 ROOT = Path(__file__).resolve().parent
 DLL_PATH = Path(os.getenv("SOC_NATIVE_ENGINE_PATH", ROOT / "native_engine.so"))
-MODEL_PATH = Path(os.getenv("SOC_MODEL_PATH", ROOT / "exports" / "nnue_inference.bin"))
+DEFAULT_MODEL_CANDIDATES = (
+    ROOT / "exports" / "nnue_inference.bin",
+    ROOT / "exports" / "nnue_inference_m.bin",
+    ROOT / "exports" / "nnue_inference_m2.bin",
+)
+MODEL_PATH = Path(
+    os.getenv(
+        "SOC_MODEL_PATH",
+        next((str(path) for path in DEFAULT_MODEL_CANDIDATES if path.exists()), str(DEFAULT_MODEL_CANDIDATES[0])),
+    )
+)
 STARTPOS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 ENGINE_NAME = "FlowMammal v1.5"
@@ -291,6 +301,7 @@ class UciDriver:
                     str(MODEL_PATH),
                     tt_size=self.hash_size,
                     eval_cache_size=self.eval_cache_size,
+                    emit_search_info=True,
                 )
                 self.engine.set_quantized_inference(self.quantized_eval_enabled)
         return self.engine
