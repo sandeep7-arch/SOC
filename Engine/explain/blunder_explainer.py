@@ -1,50 +1,13 @@
 """
 blunder_explainer.py — Specialized Explainer for Blunders and Mistakes
-=======================================================================
-YOUR MODULE: engine/explain/blunder_explainer.py
- 
-WHAT THIS FILE DOES:
---------------------
 MoveExplainer (Module 3) is a GENERAL explainer — it handles any move.
 BlunderExplainer is a SPECIALIST — it focuses ONLY on blunders and mistakes,
 and it does three extra things MoveExplainer doesn't:
- 
+
     1. BLUNDER PATTERN DETECTION
-       Looks across multiple blunders in a game and detects recurring themes:
-       "This player keeps hanging pieces in the endgame"
-       "Three of the five blunders happened on move 20-30 (time pressure?)"
- 
     2. SEVERITY TRIAGE
-       Automatically sorts blunders by how decisive they were,
-       so the dashboard can highlight the single most critical moment.
- 
     3. BATCH EXPLANATION WITH DEDUPLICATION
-       If two blunders are similar (both are piece hangings), it explains
-       them together instead of repeating the same explanation twice.
- 
-RELATIONSHIP TO OTHER MODULES:
-    BlunderExplainer uses MoveExplainer internally.
-    BlunderExplainer is NOT a subclass — it composes MoveExplainer.
-    This is the "composition over inheritance" pattern.
- 
-    MoveExplainer → explains ONE move
-    BlunderExplainer → analyzes MANY blunders as a group
- 
-USAGE:
-    from engine.explain.blunder_explainer import BlunderExplainer
-    from engine.explain.prompt_builder import MoveData
-    from engine.explain.llm_client import MockLLMProvider
- 
-    explainer = BlunderExplainer(llm=MockLLMProvider())
- 
-    # Explain all blunders from a game
-    blunders = [MoveData(...), MoveData(...), ...]
-    report = explainer.analyze_blunders(blunders)
- 
-    print(report.worst_blunder.explanation)
-    print(report.pattern_summary)
-    for b in report.explained_blunders:
-        print(b.to_markdown())
+
 """
  
 from dataclasses import dataclass, field
@@ -64,20 +27,6 @@ from engine.explain.prompt_builder import MoveData, PromptBuilder, _score_delta_
 class BlunderReport:
     """
     The full analysis report for all blunders in a game.
- 
-    This is what BlunderExplainer returns after analyzing all the blunders
-    from one game. The dashboard consumes this to build the post-game report.
- 
-    Attributes:
-        explained_blunders : List of ExplanationResponse for each blunder, sorted by severity.
-        worst_blunder      : The single most impactful blunder in the game.
-        total_cp_lost      : Total centipawns lost across all blunders combined.
-        blunder_phases     : Dict counting blunders per phase: {"opening": 0, "middlegame": 2, "endgame": 1}
-        blunder_colors     : Dict counting blunders per player: {"White": 2, "Black": 1}
-        pattern_summary    : One or two sentences describing the recurring mistake pattern (from LLM).
-        dominant_phase     : Which phase had the most blunders.
-        severity_breakdown : Dict counting by severity: {"severe": 1, "catastrophic": 2, ...}
-        triage_order       : List of move_played strings, sorted worst-first.
     """
     explained_blunders  : List[ExplanationResponse]
     worst_blunder       : Optional[ExplanationResponse]
@@ -131,27 +80,6 @@ class BlunderReport:
 class BlunderExplainer:
     """
     Specialized analyzer for blunders and mistakes across an entire game.
- 
-    This class takes a LIST of blunder MoveData objects (not just one),
-    analyzes them together as a group, and produces a BlunderReport
-    with pattern detection, severity triage, and LLM-generated insights.
- 
-    USAGE:
-        explainer = BlunderExplainer(llm=MockLLMProvider(), player_level="intermediate")
- 
-        blunders = [
-            MoveData("e4e5", +120, -200, "d4", +150, "blunder", "pawn", "middlegame", 14, "White"),
-            MoveData("Rxd4", -180, -480, "Ke2", -60,  "blunder", "rook", "endgame",   32, "White"),
-        ]
- 
-        report = explainer.analyze_blunders(blunders)
-        print(report.pattern_summary)
-        print(report.worst_blunder.explanation)
- 
-    Args:
-        llm          : Any LLMProvider (Mock, Gemini, Claude, etc.)
-        player_level : "beginner" / "intermediate" / "advanced"
-        max_tokens   : Max LLM response length per explanation.
     """
  
     def __init__(
@@ -178,20 +106,6 @@ class BlunderExplainer:
     def analyze_blunders(self, blunders: List[MoveData]) -> BlunderReport:
         """
         Analyzes all blunders from a game and returns a structured report.
- 
-        Steps:
-          1. Validate and filter — only process actual blunders/mistakes.
-          2. Triage — sort by severity (worst centipawn loss first).
-          3. Explain each one using MoveExplainer.
-          4. Detect patterns across all blunders.
-          5. Package everything into BlunderReport.
- 
-        Args:
-            blunders : List of MoveData objects (should be blunders/mistakes).
-                       If good moves are accidentally included, they're skipped.
- 
-        Returns:
-            BlunderReport: Full analysis with explanations, patterns, and stats.
         """
         if not blunders:
             return self._empty_report()
@@ -244,15 +158,6 @@ class BlunderExplainer:
     def worst_blunder(self, blunders: List[MoveData]) -> Optional[ExplanationResponse]:
         """
         Finds and explains only the single worst blunder in the list.
- 
-        Use this when you only want to highlight ONE key mistake
-        (e.g., the "game-losing blunder" badge in the dashboard).
- 
-        Args:
-            blunders : List of MoveData objects.
- 
-        Returns:
-            ExplanationResponse for the worst blunder, or None if list is empty.
         """
         if not blunders:
             return None
@@ -270,21 +175,6 @@ class BlunderExplainer:
     ) -> Dict[str, List[ExplanationResponse]]:
         """
         Groups blunders by game phase and explains each group.
- 
-        Returns a dict like:
-            {
-                "opening":    [ExplanationResponse, ...],
-                "middlegame": [ExplanationResponse, ...],
-                "endgame":    [ExplanationResponse, ...],
-            }
- 
-        Useful for the coaching module to target specific phase weaknesses.
- 
-        Args:
-            blunders : List of MoveData objects.
- 
-        Returns:
-            Dict[str, List[ExplanationResponse]]: Grouped and explained blunders.
         """
         grouped: Dict[str, List[MoveData]] = {
             "opening": [], "middlegame": [], "endgame": []
@@ -346,16 +236,6 @@ class BlunderExplainer:
     def _detect_pattern(self, blunders: List[MoveData], dominant_phase: str) -> str:
         """
         Asks the LLM to identify a recurring pattern across multiple blunders.
- 
-        Uses build_lesson_prompt() from PromptBuilder (Module 2).
-        Falls back to a template if LLM fails.
- 
-        Args:
-            blunders       : All blunders in the game.
-            dominant_phase : The phase where most blunders occurred.
- 
-        Returns:
-            str: Pattern summary in 1-2 sentences.
         """
         if len(blunders) < 2:
             # Only one blunder — no pattern to detect
