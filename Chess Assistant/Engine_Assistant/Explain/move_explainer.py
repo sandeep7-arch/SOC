@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 from typing import Optional, List
  
 # Import from other modules
-from engine.explain.llm_client import LLMProvider, MockLLMProvider, get_llm
-from engine.explain.prompt_builder import (
+from Engine_Assistant.Explain.llm_client import LLMProvider, MockLLMProvider, get_llm
+from Engine_Assistant.Explain.prompt_builder import (
     PromptBuilder,
     MoveData,
     _score_to_words,

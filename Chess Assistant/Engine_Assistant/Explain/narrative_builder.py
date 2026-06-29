@@ -11,8 +11,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
  
-from engine.explain.llm_client import LLMProvider, MockLLMProvider
-from engine.explain.prompt_builder import GameData, MoveData, build_game_summary_prompt, _score_to_words
+from Engine_Assistant.Explain.llm_client import LLMProvider, MockLLMProvider
+from Engine_Assistant.Explain.prompt_builder import GameData, MoveData, build_game_summary_prompt, _score_to_words
  
  
 # =============================================================================
@@ -279,7 +279,7 @@ if __name__ == "__main__":
     print("narrative_builder.py — Full Integration Test")
     print("=" * 65)
  
-    from engine.explain.llm_client import MockLLMProvider
+    from Engine_Assistant.Explain.llm_client import MockLLMProvider
  
     builder = NarrativeBuilder(llm=MockLLMProvider())
     print(f"\nBuilder: {builder}\n")

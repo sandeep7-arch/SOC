@@ -37,7 +37,7 @@ class MoveData:
     move_number:   int         = 0
     player_color:  str         = "White"
     fen_before:    Optional[str] = None
- tactic_type:   Optional[str] = None   
+    tactic_type:   Optional[str] = None
     reason:        Optional[str] = None  
  
  

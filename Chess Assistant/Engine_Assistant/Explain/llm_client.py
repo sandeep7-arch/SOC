@@ -461,6 +461,6 @@ Do NOT invent lines not given above. Base your explanation only on the data prov
     print("=" * 60)
     print("All tests passed! MockLLMProvider is working correctly.")
     print("\nNext step: Get a Gemini API key and test GeminiProvider.")
-    print("Run: python -c \"from engine.explain.llm_client import GeminiProvider; ...")
+    print("Run: python -c \"from Engine_Assistant.Explain.llm_client import GeminiProvider; ...")
     print("=" * 60)
  

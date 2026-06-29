@@ -6,6 +6,7 @@ import chess
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+sys.path.append(os.path.join(PROJECT_ROOT, "App"))
 sys.path.append(os.path.join(PROJECT_ROOT, "App", "Services"))
 sys.path.append(os.path.join(PROJECT_ROOT, "Database"))
 

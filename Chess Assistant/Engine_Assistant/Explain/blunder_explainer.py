@@ -14,9 +14,9 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
 from collections import Counter
  
-from engine.explain.llm_client import LLMProvider, MockLLMProvider
-from engine.explain.move_explainer import MoveExplainer, ExplanationResponse
-from engine.explain.prompt_builder import MoveData, PromptBuilder, _score_delta_to_severity
+from Engine_Assistant.Explain.llm_client import LLMProvider, MockLLMProvider
+from Engine_Assistant.Explain.move_explainer import MoveExplainer, ExplanationResponse
+from Engine_Assistant.Explain.prompt_builder import MoveData, PromptBuilder, _score_delta_to_severity
  
  
 # =============================================================================
@@ -308,7 +308,7 @@ if __name__ == "__main__":
     print("blunder_explainer.py — Full Integration Test")
     print("=" * 65)
  
-    from engine.explain.llm_client import MockLLMProvider
+    from Engine_Assistant.Explain.llm_client import MockLLMProvider
  
     explainer = BlunderExplainer(llm=MockLLMProvider(), player_level="intermediate")
     print(f"\nExplainer: {explainer}\n")

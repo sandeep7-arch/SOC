@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
  
-from engine.explain.prompt_builder import MoveData, _score_to_words, _score_delta_to_severity
+from Engine_Assistant.Explain.prompt_builder import MoveData, _score_to_words, _score_delta_to_severity
  
  
 # =============================================================================
