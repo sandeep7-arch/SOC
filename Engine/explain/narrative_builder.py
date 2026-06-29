@@ -1,48 +1,10 @@
 """
 narrative_builder.py — Converts Game Data into a Story-Like Narrative
-======================================================================
-YOUR MODULE: engine/explain/narrative_builder.py
- 
 WHAT THIS FILE DOES:
---------------------
-After a game ends, players want to know the STORY of what happened:
-  "You had a winning position by move 18, but a rook blunder on move 23
-   let the opponent back in. You fought hard but the endgame accuracy
-   wasn't enough. Key lesson: rook endgame technique."
- 
-This is exactly what NarrativeBuilder produces.
-It is NOT a move-by-move explanation — that's MoveExplainer's job.
-NarrativeBuilder writes the MACRO story: opening → crisis → resolution.
- 
 THREE OUTPUTS:
     1. Full game narrative (3 paragraphs, story format)
     2. One-line game summary (for dashboard cards / history list)
     3. Title card (like a chess.com game title: "The Ruy Lopez Duel")
- 
-WHAT IT USES:
-    - GameData (from prompt_builder.py) — the stats input
-    - build_game_summary_prompt() (from prompt_builder.py) — the prompt
-    - LLMProvider (from llm_client.py) — sends the prompt
- 
-USAGE:
-    from engine.explain.narrative_builder import NarrativeBuilder
-    from engine.explain.prompt_builder import GameData, MoveData
-    from engine.explain.llm_client import MockLLMProvider
- 
-    builder = NarrativeBuilder(llm=MockLLMProvider())
- 
-    game = GameData(
-        white_player="Vinod", black_player="Stockfish_800",
-        total_moves=45, result="0-1",
-        blunders=[...], mistakes=[...], inaccuracies=[...],
-        white_accuracy=72.4, black_accuracy=91.3,
-        opening_name="Ruy Lopez", decisive_moment=23
-    )
- 
-    story = builder.build(game)
-    print(story.narrative)          # 3-paragraph story
-    print(story.one_liner)          # "Hard-fought loss after a critical rook blunder"
-    print(story.title)              # "The Ruy Lopez Battle"
 """
  
 import re
@@ -61,19 +23,6 @@ from engine.explain.prompt_builder import GameData, MoveData, build_game_summary
 class GameNarrative:
     """
     The structured output from NarrativeBuilder.
- 
-    Attributes:
-        narrative     : The full 3-paragraph story of the game (LLM-generated).
-        one_liner     : A single sentence summary for dashboard cards.
-        title         : A short "game title" like a newspaper headline.
-        result        : Raw result string: "1-0", "0-1", "1/2-1/2"
-        result_words  : Human-readable result: "White won", "Draw", etc.
-        white_player  : White player name.
-        black_player  : Black player name.
-        decisive_move : Move number that turned the game, if known.
-        white_accuracy: White's accuracy percentage.
-        black_accuracy: Black's accuracy percentage.
-        opening_name  : Opening played.
     """
     narrative       : str
     one_liner       : str
@@ -122,21 +71,6 @@ class GameNarrative:
 class NarrativeBuilder:
     """
     Builds a story-like narrative of a full chess game using an LLM.
- 
-    Takes a GameData object (full game stats) and returns a GameNarrative
-    with the full story, one-liner summary, and a creative game title.
- 
-    HOW IT WORKS:
-        1. Validates GameData
-        2. Builds game summary prompt via PromptBuilder
-        3. Sends to LLM → gets 3-paragraph narrative
-        4. Generates a one-liner summary (second LLM call, short)
-        5. Generates a creative title (third LLM call, very short)
-        6. Packages into GameNarrative
- 
-    Args:
-        llm          : Any LLMProvider instance.
-        player_level : "beginner" / "intermediate" / "advanced" — adjusts tone.
     """
  
     # Result mapping to human-readable
@@ -161,12 +95,6 @@ class NarrativeBuilder:
     def build(self, game: GameData) -> GameNarrative:
         """
         Builds a full GameNarrative from a GameData object.
- 
-        Args:
-            game : GameData with full game statistics.
- 
-        Returns:
-            GameNarrative: Full story, one-liner, and title.
         """
         self._validate(game)
  
@@ -201,13 +129,7 @@ class NarrativeBuilder:
  
     def quick_summary(self, game: GameData) -> str:
         """
-        Generates just the one-line game summary. Faster (1 LLM call only).
- 
-        Args:
-            game : GameData object.
- 
-        Returns:
-            str: One-sentence game summary.
+        Generates just the one-line game summary. Faster (1 LLM call only)
         """
         self._validate(game)
         result_words = self._RESULT_MAP.get(game.result, "Game concluded")
