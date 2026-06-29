@@ -12,11 +12,11 @@ sys.path.append(ROOT)
 
 import chess
 from engine_service import get_move_and_score, get_position_score
-from blunder_detector import blunder_detector
-from game_phase import get_game_phase
-from mistake_categorizer import categorize_mistake
-from weakness_detector import detect_weaknesses
-from tactical_patterns import analyze_tactical_patterns
+from Engine_Assistant.Analysis.blunder_detector import blunder_detector
+from Engine_Assistant.Analysis.game_phase import get_game_phase
+from Engine_Assistant.Analysis.mistake_categorizer import categorize_mistake
+from Engine_Assistant.Analysis.weakness_detector import detect_weaknesses
+from Engine_Assistant.Analysis.tactical_patterns import analyze_tactical_patterns
 
 
 def analyze_single_move(board_before: chess.Board, move_uci: str, depth: int = 8) -> dict:

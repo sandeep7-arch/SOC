@@ -9,13 +9,13 @@ sys.path.append(os.path.join(ROOT, 'Database'))
 sys.path.append(ROOT)
 
 
-from session import get_db_session
-from models import Player, Game, Mistake, Recommendation, VulnerabilityVector
-from player_profile import PlayerProfile
-from game_index import GameIndex, GameRecord
-from vulnerability_vector import build_vulnerability_vector
-from progress_tracker import get_full_progress_report
-from personalization import build_personalization_context, build_llm_context_string
+from Database.session import get_db_session
+from Database.models import Player, Game, Mistake, Recommendation, VulnerabilityVector
+from Engine_Assistant.Player_model.player_profile import PlayerProfile
+from Engine_Assistant.Player_model.game_index import GameIndex, GameRecord
+from Engine_Assistant.Player_model.vulnerability_vector import build_vulnerability_vector
+from Engine_Assistant.Player_model.progress_tracker import get_full_progress_report
+from Engine_Assistant.Player_model.personalization import build_personalization_context, build_llm_context_string
 
 
 def get_or_create_player(name: str, rating: int = 1200) -> Player:

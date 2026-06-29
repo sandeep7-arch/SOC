@@ -9,15 +9,15 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(PROJECT_ROOT, "App", "Services"))
 sys.path.append(os.path.join(PROJECT_ROOT, "Database"))
 
-from analysis_service import analyze_full_game, analyze_single_move
-from coaching_service import (
+from Services.analysis_service import analyze_full_game, analyze_single_move
+from Services.coaching_service import (
     build_coaching_report,
     build_game_vulnerability_vector,
     format_coaching_report,
 )
-from engine_service import close_stockfish, get_best_move, get_position_score
-from explain_service import explain_game_analysis, explain_single_move
-from profile_service import (
+from Services.engine_service import close_stockfish, get_best_move, get_position_score
+from Services.explain_service import explain_game_analysis, explain_single_move
+from Services.profile_service import (
     get_or_create_player,
     load_player_profile,
     save_game_to_db,

@@ -6,10 +6,10 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "Engine_Assistant", "coaching module"))
 sys.path.insert(0, os.path.join(ROOT, "Engine_Assistant", "Player model"))
 
-from postgame_report import build_postgame_report, format_report
-from recommendation_engine import generate_recommendations
-from realtime_feedback import generate_multiple_feedback
-from vulnerability_vector import ALL_WEAKNESS_TYPES, get_top_weaknesses
+from Engine_Assistant.Coaching.postgame_report import build_postgame_report, format_report
+from Engine_Assistant.Coaching.recommendation_engine import generate_recommendations
+from Engine_Assistant.Coaching.realtime_feedback import generate_multiple_feedback
+from Engine_Assistant.Coaching.vulnerability_vector import ALL_WEAKNESS_TYPES, get_top_weaknesses
 
 
 def collect_game_weaknesses(game_analysis: dict) -> list[str]:
