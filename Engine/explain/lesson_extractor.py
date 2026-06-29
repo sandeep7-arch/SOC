@@ -1,25 +1,5 @@
 """
 lesson_extractor.py - Extracts Coaching Lessons from Game Mistakes
-==================================================================
-YOUR MODULE: engine/explain/lesson_extractor.py
- 
-WHAT THIS FILE DOES:
---------------------
-Looks at ALL mistakes a player made in a game,
-finds PATTERNS in those mistakes, and extracts
-concrete coaching lessons.
- 
-Example:
-  Player made 3 opening mistakes + 2 king safety mistakes
-  LessonExtractor detects: "recurring opening problems"
-  Output: "You consistently struggle with piece development
-           in the opening. Practice the first 10 moves of
-           your main openings until they become automatic."
- 
-This is different from blunder_explainer.py which explains
-each mistake individually. This file finds the PATTERN
-ACROSS mistakes and gives ONE big lesson per pattern.
- 
 WHAT THIS FILE CONTAINS:
     1. Lesson              - single extracted lesson
     2. LessonReport        - full lesson report for a game
@@ -47,16 +27,6 @@ from engine.explain.prompt_builder import (
 class Lesson:
     """
     A single coaching lesson extracted from a pattern of mistakes.
- 
-    Attributes:
-        title          : Short lesson title e.g. "Opening Development Issues"
-        description    : Full lesson explanation (from LLM)
-        action_item    : One specific thing to practice
-        pattern_type   : What pattern triggered this e.g. "opening_error"
-        phase          : Which phase this lesson applies to
-        mistake_count  : How many mistakes showed this pattern
-        severity       : How important this lesson is (high/medium/low)
-        example_moves  : The actual moves that triggered this lesson
     """
     title:         str
     description:   str
@@ -101,15 +71,6 @@ class LessonReport:
     """
     Complete lesson report for an entire game.
     Contains all patterns found and lessons extracted.
- 
-    Attributes:
-        lessons         : List of Lesson objects
-        total_lessons   : How many lessons found
-        priority_lesson : Most important lesson (highest severity + count)
-        phase_breakdown : How many mistakes per phase
-        type_breakdown  : How many mistakes per tactic type
-        player_color    : Which player these lessons are for
-        generated_at    : Timestamp
     """
     lessons:         List[Lesson]
     total_lessons:   int
@@ -167,32 +128,6 @@ class LessonReport:
 class LessonExtractor:
     """
     Extracts coaching lessons from patterns in game mistakes.
- 
-    HOW IT WORKS:
-        1. Takes all mistakes from a game
-        2. Groups them by tactic_type and phase
-        3. Finds patterns (e.g. 3 opening errors = a pattern)
-        4. Calls LLM to generate a lesson for each pattern
-        5. Returns prioritized LessonReport
- 
-    CONNECTS TO:
-        Uses tactic_type from categorize_mistake() to group mistakes.
-        The more specific analysis, the better the lessons.
- 
-    USAGE:
-        extractor = LessonExtractor(llm=MockLLMProvider())
- 
-        # All mistakes from the game (from classify_game output)
-        all_mistakes = blunders + mistakes + inaccuracies
- 
-        # Get lessons for White
-        report = extractor.extract(all_mistakes, player_color="White")
-        print(report.to_markdown())
- 
-    Args:
-        llm              : Any LLMProvider
-        min_pattern_count: Minimum mistakes to form a pattern (default 2)
-        max_lessons      : Max lessons to return (default 5)
     """
  
     # Lesson titles per pattern type — shown in the report
@@ -268,14 +203,6 @@ class LessonExtractor:
     ) -> LessonReport:
         """
         Extracts lessons from all mistakes for one player.
- 
-        Args:
-            mistakes     : All bad moves (blunders+mistakes+inaccuracies)
-                           from classify_game() output as MoveData objects
-            player_color : "White" or "Black" — whose mistakes to analyze
- 
-        Returns:
-            LessonReport: Prioritized lessons for this player
         """
         # Filter to this player's mistakes only
         player_mistakes = [
@@ -325,16 +252,6 @@ class LessonExtractor:
     ) -> Dict[str, LessonReport]:
         """
         Extracts separate lesson reports for each game phase.
- 
-        Returns a dict with keys "opening", "middlegame", "endgame".
-        Each value is a LessonReport for that phase.
- 
-        Args:
-            mistakes     : All bad moves as MoveData objects
-            player_color : "White" or "Black"
- 
-        Returns:
-            Dict[str, LessonReport]: One report per phase
         """
         reports = {}
         for phase in ["opening", "middlegame", "endgame"]:
@@ -355,13 +272,6 @@ class LessonExtractor:
         """
         Returns ONLY the single most important lesson.
         Quick method for dashboard summary cards.
- 
-        Args:
-            mistakes     : All bad moves
-            player_color : "White" or "Black"
- 
-        Returns:
-            Lesson: The most important lesson, or None
         """
         report = self.extract(mistakes, player_color)
         return report.priority_lesson
@@ -376,9 +286,6 @@ class LessonExtractor:
         """
         Groups mistakes by their tactic_type (from categorize_mistake).
         Falls back to grouping by category if tactic_type is empty.
- 
-        Returns:
-            Dict mapping pattern_key -> list of MoveData
         """
         patterns: Dict[str, List[MoveData]] = {}
  
@@ -403,13 +310,6 @@ class LessonExtractor:
  
         Uses LLM for description, templates for action_item.
         Phase is the most common phase among the moves.
- 
-        Args:
-            pattern_key : The pattern identifier e.g. "opening_error"
-            moves       : All moves showing this pattern
- 
-        Returns:
-            Lesson: Complete lesson with description and action item
         """
         # Most common phase among these mistakes
         phases      = [m.phase for m in moves]
