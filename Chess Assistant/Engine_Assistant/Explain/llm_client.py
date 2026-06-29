@@ -328,10 +328,66 @@ class OpenAIProvider(LLMProvider):
  
         except Exception as e:
             raise LLMError(f"OpenAI API error: {e}")
+
+
+# =============================================================================
+# PROVIDER 5: GroqProvider
+# =============================================================================
+
+class GroqProvider(LLMProvider):
+    """
+    Calls Groq's OpenAI-compatible chat completions API.
+    """
+
+    DEFAULT_MODEL = "llama-3.1-8b-instant"
+
+    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
+        self.api_key = api_key or os.environ.get("GROQ_API_KEY")
+
+        if not self.api_key:
+            raise LLMConfigError(
+                "Groq API key not found!\n"
+                "Fix: pass api_key='gsk_...' or set GROQ_API_KEY env variable."
+            )
+
+        self.model_name = model
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            try:
+                from groq import Groq
+                self._client = Groq(api_key=self.api_key)
+            except ImportError:
+                raise LLMConfigError("groq package not installed! Fix: pip install groq")
+        return self._client
+
+    def complete(self, prompt: str, max_tokens: int = 500) -> str:
+        try:
+            client = self._get_client()
+            response = client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a chess coach explaining moves to students. Be concise and specific."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                max_tokens=max_tokens,
+                temperature=0.7
+            )
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            raise LLMError(f"Groq API error: {e}")
  
  
 # =============================================================================
-# PROVIDER 5: LocalLlamaProvider (Completely free, no internet needed)
+# PROVIDER 6: LocalLlamaProvider (Completely free, no internet needed)
 # =============================================================================
  
 class LocalLlamaProvider(LLMProvider):
@@ -389,7 +445,7 @@ def get_llm(provider: str = "mock", **kwargs) -> LLMProvider:
     Factory function — creates the right LLM provider by name.
     Instead of importing each class separately, just call get_llm("gemini").
     Args:
-        provider : One of: "mock", "gemini", "claude", "openai", "ollama"
+        provider : One of: "mock", "gemini", "claude", "openai", "ollama", "groq"
         **kwargs : Passed directly to the provider's __init__
                    e.g., get_llm("gemini", api_key="AIza...")
     Example:
@@ -402,6 +458,7 @@ def get_llm(provider: str = "mock", **kwargs) -> LLMProvider:
         "claude": ClaudeProvider,
         "openai": OpenAIProvider,
         "ollama": LocalLlamaProvider,
+        "groq": GroqProvider,
     }
  
     provider_lower = provider.lower()
