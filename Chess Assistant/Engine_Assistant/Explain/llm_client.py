@@ -1,33 +1,5 @@
 """
 llm_client.py — LLM Backend for Chess Explanation Engine
-=========================================================
-YOUR MODULE: Engine_Assistant/Explain/llm_client.py
- 
-This file is the ONLY place in the entire project that talks to an external LLM.
-Every other file (move_explainer, blunder_explainer, etc.) will import from here.
- 
-Why this design?
-- If you want to switch from Gemini to Claude, you change ONE line in your main script.
-- All explainers stay untouched.
-- You can test everything offline using MockLLMProvider (no API key needed).
- 
-PROVIDERS INCLUDED:
-    1. MockLLMProvider       — works offline, zero cost, for testing
-    2. GeminiProvider        — Google Gemini API (free tier: 15 req/min)
-    3. ClaudeProvider        — Anthropic Claude API
-    4. OpenAIProvider        — OpenAI GPT API
-    5. LocalLlamaProvider    — Ollama running locally (completely free, no internet)
- 
-USAGE (copy this to understand the pattern):
-    from Engine_Assistant.Explain.llm_client import get_llm, MockLLMProvider, GeminiProvider
- 
-    # Today — no API key needed
-    llm = MockLLMProvider()
-    response = llm.complete("Explain this chess move...")
- 
-    # Next week — swap to Gemini, zero other changes
-    llm = GeminiProvider(api_key="YOUR_KEY_HERE")
-    response = llm.complete("Explain this chess move...")
 """
  
 import os
@@ -45,26 +17,12 @@ from typing import Optional
 class LLMProvider(ABC):
     """
     Abstract base class — every LLM provider MUST implement these two methods.
- 
-    Think of this as a USB port standard.
-    Any provider that plugs in must have: complete() and complete_with_retry()
-    Your explainer code only talks to this interface, never to Gemini/OpenAI directly.
     """
  
     @abstractmethod
     def complete(self, prompt: str, max_tokens: int = 500) -> str:
         """
         Send a prompt to the LLM and get a text response back.
- 
-        Args:
-            prompt     : The full text prompt to send.
-            max_tokens : Maximum length of response. Keep low (300-500) for chess explanations.
- 
-        Returns:
-            str: The LLM's response as a plain string.
- 
-        Raises:
-            LLMError: If the API call fails.
         """
         pass
  
@@ -72,18 +30,8 @@ class LLMProvider(ABC):
                              retries: int = 3, delay: float = 2.0) -> str:
         """
         Same as complete(), but automatically retries on failure.
- 
         This handles temporary network errors or API rate limits.
         Default: 3 retries with 2 second wait between each.
- 
-        Args:
-            prompt     : The prompt to send.
-            max_tokens : Max response length.
-            retries    : How many times to retry before giving up.
-            delay      : Seconds to wait between retries.
- 
-        Returns:
-            str: The LLM's response.
         """
         last_error = None
  
@@ -126,23 +74,7 @@ class LLMConfigError(Exception):
 class MockLLMProvider(LLMProvider):
     """
     A fake LLM that returns pre-written template responses.
- 
-    WHY THIS EXISTS:
-    You need to test your explainer code NOW, before you have an API key.
-    This provider reads your prompt, detects keywords like "blunder" or "mistake",
-    and returns a realistic-looking template response.
- 
     No internet. No API key. No cost. Instant.
- 
-    WHEN TO USE:
-    -  Before you get a Gemini key
-    - In tests: So tests run fast without API calls
-    - Demos: If internet is unavailable
- 
-    Example:
-        llm = MockLLMProvider()
-        response = llm.complete("A player made a blunder. Move: e4e5. Score: -300cp")
-        print(response)  # Returns a blunder explanation template
     """
  
     # Pre-written response templates. The complete() method picks the right one.
@@ -200,14 +132,7 @@ class MockLLMProvider(LLMProvider):
     def complete(self, prompt: str, max_tokens: int = 500) -> str:
         """
         Scans the prompt for chess keywords and returns the matching template.
- 
-        Args:
-            prompt     : The chess explanation prompt (we scan this for keywords).
-            max_tokens : Ignored in mock — we return fixed templates.
- 
-        Returns:
-            str: A realistic-looking chess explanation.
-        """
+      """
         prompt_lower = prompt.lower()
  
         # Check keywords in priority order (worst mistakes first)
@@ -230,115 +155,70 @@ class MockLLMProvider(LLMProvider):
  
  
 # =============================================================================
-# PROVIDER 2: GeminiProvider (RECOMMENDED — free tier is generous)
+# PROVIDER 2: GeminiProvider 
 # =============================================================================
  
-class GroqProvider(LLMProvider):
-    DEFAULT_MODEL = "llama-3.1-8b-instant"
-
-    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
-        self.api_key = api_key or os.environ.get("GROQ_API_KEY")
-        if not self.api_key:
-            raise LLMConfigError("Groq API key not found! Set GROQ_API_KEY env variable.")
-        self.model_name = model
-        self._client = None
-
-    def _get_client(self):
-        if self._client is None:
-            try:
-                from groq import Groq
-                self._client = Groq(api_key=self.api_key)
-            except ImportError:
-                raise LLMConfigError("groq package not installed! Fix: pip install groq")
-        return self._client
-
-    def complete(self, prompt: str, max_tokens: int = 500) -> str:
-        try:
-            client = self._get_client()
-            response = client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a chess coach explaining moves to students. Be concise and specific."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                max_tokens=max_tokens,
-                temperature=0.7
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            raise LLMError(f"Groq API error: {e}")
-
 class GeminiProvider(LLMProvider):
     """
     Calls Google's Gemini API to generate chess explanations.
-
-    FREE TIER LIMITS:
-    - 15 requests per minute
-    - No credit card required
-
-    SETUP:
-        pip install google-genai
-
-    USAGE:
-        llm = GeminiProvider(api_key="AIza...")
-        response = llm.complete("Explain why e4e5 was a blunder.")
     """
-
-    DEFAULT_MODEL = "gemini-1.5-flash"
-
+ 
+    DEFAULT_MODEL = "gemini-1.5-flash"  # Fast and free. Use "gemini-1.5-pro" for quality.
+ 
     def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
+        """
+        Initialize Gemini provider.
+        """
+        # Try to get key from argument first, then environment variable
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
-
+ 
         if not self.api_key:
             raise LLMConfigError(
                 "Gemini API key not found!\n"
                 "Fix: Either pass api_key='YOUR_KEY' or set env variable:\n"
                 "     export GEMINI_API_KEY='YOUR_KEY'"
             )
-
+ 
         self.model_name = model
-        self._client = None
-
+        self._client = None  # Lazy initialization (import only when needed)
+ 
     def _get_client(self):
+        """Initialize the Gemini client (only once, on first use)."""
         if self._client is None:
             try:
-                from google import genai  # new SDK
-                self._client = genai.Client(api_key=self.api_key)
+                import google.generativeai as genai
+                genai.configure(api_key=self.api_key)
+                self._client = genai.GenerativeModel(self.model_name)
             except ImportError:
                 raise LLMConfigError(
-                    "google-genai package not installed!\n"
-                    "Fix: pip install google-genai"
+                    "google-generativeai package not installed!\n"
+                    "Fix: pip install google-generativeai"
                 )
         return self._client
-
+ 
     def complete(self, prompt: str, max_tokens: int = 500) -> str:
+        """
+        Send prompt to Gemini and return the text response.
+        """
         try:
-            from google import genai
-            from google.genai import types
-
             client = self._get_client()
-
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=0.7,
-                    top_p=0.9,
-                )
+ 
+            # Configure generation parameters
+            import google.generativeai as genai
+            config = genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.7,        # 0 = deterministic, 1 = creative. 0.7 is balanced.
+                top_p=0.9,
             )
-
+ 
+            response = client.generate_content(prompt, generation_config=config)
+ 
+            # Extract text from response
             if response.text:
                 return response.text.strip()
             else:
-                raise LLMError("Gemini returned empty response.")
-
+                raise LLMError("Gemini returned empty response. Check your prompt.")
+ 
         except Exception as e:
             if "API_KEY_INVALID" in str(e):
                 raise LLMConfigError(f"Invalid Gemini API key: {e}")
@@ -355,16 +235,6 @@ class GeminiProvider(LLMProvider):
 class ClaudeProvider(LLMProvider):
     """
     Calls Anthropic's Claude API.
- 
-    SETUP:
-        pip install anthropic
- 
-    GET API KEY:
-        https://console.anthropic.com/ → API Keys
- 
-    USAGE:
-        llm = ClaudeProvider(api_key="sk-ant-...")
-        response = llm.complete("Explain this chess blunder...")
     """
  
     DEFAULT_MODEL = "claude-3-haiku-20240307"  # Fastest and cheapest Claude model
@@ -411,16 +281,6 @@ class ClaudeProvider(LLMProvider):
 class OpenAIProvider(LLMProvider):
     """
     Calls OpenAI's GPT API.
- 
-    SETUP:
-        pip install openai
- 
-    GET API KEY:
-        https://platform.openai.com/api-keys
- 
-    USAGE:
-        llm = OpenAIProvider(api_key="sk-...")
-        response = llm.complete("Explain this chess move...")
     """
  
     DEFAULT_MODEL = "gpt-3.5-turbo"  # Cheapest option. Use gpt-4o for best quality.
@@ -477,39 +337,18 @@ class OpenAIProvider(LLMProvider):
 class LocalLlamaProvider(LLMProvider):
     """
     Calls a local LLM running via Ollama. 100% free, works offline.
- 
-    SETUP:
-    1. Download Ollama: https://ollama.ai
-    2. Run in terminal: ollama pull llama3.2
-    3. Ollama starts automatically as a background service
- 
-    USAGE:
-        llm = LocalLlamaProvider(model="llama3.2")
-        response = llm.complete("Explain this chess blunder...")
- 
-    AVAILABLE MODELS (run: ollama list):
-        - llama3.2      : Fast, good quality
-        - mistral       : Good for structured output
-        - phi3          : Very fast, smaller model
     """
  
     DEFAULT_HOST = "http://localhost:11434"
  
     def __init__(self, model: str = "llama3.2", host: str = DEFAULT_HOST):
-        """
-        Args:
-            model : The Ollama model name. Run 'ollama list' to see available.
-            host  : Ollama server address. Default is localhost.
-        """
+     
         self.model = model
         self.host = host
  
     def complete(self, prompt: str, max_tokens: int = 500) -> str:
         """
         Sends prompt to local Ollama instance and returns response.
- 
-        Raises:
-            LLMError: If Ollama is not running or model not found.
         """
         try:
             import urllib.request
@@ -548,25 +387,14 @@ class LocalLlamaProvider(LLMProvider):
 def get_llm(provider: str = "mock", **kwargs) -> LLMProvider:
     """
     Factory function — creates the right LLM provider by name.
- 
     Instead of importing each class separately, just call get_llm("gemini").
- 
     Args:
         provider : One of: "mock", "gemini", "claude", "openai", "ollama"
         **kwargs : Passed directly to the provider's __init__
                    e.g., get_llm("gemini", api_key="AIza...")
- 
-    Returns:
-        LLMProvider: Ready-to-use provider instance.
- 
-    Raises:
-        ValueError: If provider name is unknown.
- 
     Example:
         llm = get_llm("mock")                              # offline testing
         llm = get_llm("gemini", api_key="AIza...")         # Gemini
-        llm = get_llm("claude", api_key="sk-ant-...")      # Claude
-        llm = get_llm("ollama", model="llama3.2")          # local
     """
     providers = {
         "mock":   MockLLMProvider,
@@ -574,7 +402,6 @@ def get_llm(provider: str = "mock", **kwargs) -> LLMProvider:
         "claude": ClaudeProvider,
         "openai": OpenAIProvider,
         "ollama": LocalLlamaProvider,
-        "groq":   GroqProvider,
     }
  
     provider_lower = provider.lower()
@@ -634,6 +461,6 @@ Do NOT invent lines not given above. Base your explanation only on the data prov
     print("=" * 60)
     print("All tests passed! MockLLMProvider is working correctly.")
     print("\nNext step: Get a Gemini API key and test GeminiProvider.")
-    print("Run: python -c \"from Engine_Assistant.Explain.llm_client import GeminiProvider; ...")
+    print("Run: python -c \"from engine.explain.llm_client import GeminiProvider; ...")
     print("=" * 60)
  
