@@ -2,6 +2,7 @@ import chess
 import chess.engine
 import sys
 import os
+import shutil  # Added to find global system executables
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(ROOT, 'Engine_Assistant', 'Analysis'))
@@ -18,6 +19,12 @@ STOCKFISH_FILENAME = "stockfish-windows-x86-64-avx2.exe"
 
 
 def find_stockfish_path() -> str:
+    # 1. First, check if 'stockfish' is installed globally on the system (e.g., Linux /usr/bin/stockfish)
+    global_stockfish = shutil.which("stockfish")
+    if global_stockfish:
+        return global_stockfish
+
+    # 2. If not found globally, fall back to project directory candidates (Windows setup)
     candidates = [
         os.path.join(ROOT, "stockfish", STOCKFISH_FILENAME),
         os.path.join(os.path.dirname(ROOT), "stockfish", STOCKFISH_FILENAME),
