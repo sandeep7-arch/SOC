@@ -1,16 +1,5 @@
 """
 response_formatter.py - Cleans and structures LLM output for UI
-================================================================
-YOUR MODULE: Engine_Assistant/Explain/response_formatter.py
- 
-WHAT THIS FILE DOES:
---------------------
-LLM responses are messy raw text. This file cleans, structures,
-and formats them into consistent output for dashboard.
- 
-Think of it as the FINAL STEP before output reaches the user:
-    Raw LLM text -> ResponseFormatter -> Clean structured output
- 
 WHAT THIS FILE CONTAINS:
     1. FormattedResponse  - structured output object
     2. ResponseFormatter  - main class, cleans all LLM output
@@ -23,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
  
-from Engine_Assistant.Explain.prompt_builder import MoveData, _score_to_words, _score_delta_to_severity
+from engine.explain.prompt_builder import MoveData, _score_to_words, _score_delta_to_severity
  
  
 # =============================================================================
@@ -32,23 +21,7 @@ from Engine_Assistant.Explain.prompt_builder import MoveData, _score_to_words, _
  
 @dataclass
 class FormattedResponse:
-    """
-    Clean structured output ready for Piyush's dashboard.
- 
-    Attributes:
-        raw_text        : Original LLM response
-        clean_text      : Cleaned version (no markdown artifacts)
-        headline        : One line summary e.g. "Critical blunder on move 14"
-        explanation     : Main explanation paragraph
-        coaching_tip    : Actionable advice
-        severity_label  : "BLUNDER" / "MISTAKE" / "INACCURACY" / "GOOD"
-        severity_color  : "red" / "orange" / "yellow" / "green"
-        move_number     : Which move
-        player_color    : "White" or "Black"
-        category        : blunder/mistake/inaccuracy/good/excellent
-        score_drop      : Pawn drop (float)
-        display_format  : "markdown" / "plain" / "json"
-    """
+  
     raw_text:       str
     clean_text:     str
     headline:       str
@@ -107,18 +80,6 @@ class FormattedResponse:
 class ResponseFormatter:
     """
     Cleans and structures LLM output for the dashboard.
- 
-    USAGE:
-        formatter = ResponseFormatter()
- 
-        # From MoveExplainer output:
-        raw = explainer.explain_move(data)
-        formatted = formatter.format(raw.explanation, data)
-        print(formatted.to_markdown())
- 
-    Args:
-        max_length : Max characters for explanation. Truncates if longer.
-        style      : "markdown" / "plain" / "json"
     """
  
     # Severity config — maps category to display properties
@@ -138,15 +99,7 @@ class ResponseFormatter:
                coaching_tip: str = "") -> FormattedResponse:
         """
         Main method — takes raw LLM text and MoveData,
-        returns clean FormattedResponse.
- 
-        Args:
-            raw_text     : Raw text from LLM
-            data         : MoveData object for this move
-            coaching_tip : Optional coaching tip to include
- 
-        Returns:
-            FormattedResponse: Clean structured output
+        returns clean FormattedResponse
         """
         # Clean the raw text
         clean = self._clean_text(raw_text)
@@ -192,14 +145,6 @@ class ResponseFormatter:
         """
         Formats multiple explanations at once.
         Used for post-game analysis of all moves.
- 
-        Args:
-            explanations    : List of raw LLM responses
-            move_data_list  : Corresponding MoveData objects
-            coaching_tips   : Optional tips per move
- 
-        Returns:
-            List[FormattedResponse]: One formatted response per move
         """
         tips = coaching_tips or [""] * len(explanations)
         results = []
@@ -217,12 +162,6 @@ class ResponseFormatter:
         """
         Formats response specifically for  Streamlit dashboard.
         Returns a dict that maps directly to Streamlit components.
- 
-        Args:
-            response : FormattedResponse object
- 
-        Returns:
-            dict: Ready for Streamlit display
         """
         return {
             "title":     response.headline,
@@ -301,11 +240,6 @@ class ResponseFormatter:
     def _make_headline(self, data: MoveData) -> str:
         """
         Creates a one-line headline for the move.
- 
-        Examples:
-            "Critical blunder on move 14 by White"
-            "Excellent move on move 5 by White"
-            "Mistake in the endgame by Black"
         """
         category  = data.category.lower()
         drop      = abs(data.score_after - data.score_before)
