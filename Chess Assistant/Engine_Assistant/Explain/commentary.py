@@ -1,18 +1,5 @@
 """
-commentary.py - Live Chess Commentary Engine
-============================================
-YOUR MODULE: Engine_Assistant/Explain/commentary.py
- 
-WHAT THIS FILE DOES:
---------------------
-Generates live commentary during a chess game,
-like a sports broadcaster watching the game in real time.
- 
-Examples of output:
-  "Oh no! That blunder loses the queen immediately."
-  "Excellent! The knight fork wins material decisively."
-  "Interesting choice — the engine prefers d4 here."
- 
+commentary.py - Live Chess Commentary Engine 
 WHAT THIS FILE CONTAINS:
     1. CommentaryStyle    - enum for commentary tone
     2. CommentaryLine     - single commentary output
@@ -25,8 +12,8 @@ from dataclasses import dataclass
 from typing import Optional, List
 from enum import Enum
  
-from Engine_Assistant.Explain.llm_client import LLMProvider, MockLLMProvider
-from Engine_Assistant.Explain.prompt_builder import (
+from engine.explain.llm_client import LLMProvider, MockLLMProvider
+from engine.explain.prompt_builder import (
     MoveData, PromptBuilder,
     _score_to_words, _score_delta_to_severity
 )
@@ -55,15 +42,6 @@ class CommentaryStyle(Enum):
 class CommentaryLine:
     """
     A single commentary line for one move.
- 
-    Attributes:
-        text         : The commentary text
-        move_number  : Which move this is for
-        move_played  : The move e.g. "Nf3"
-        category     : blunder/mistake/inaccuracy/good/excellent
-        style        : Which commentary style was used
-        is_critical  : True if this was a game-changing moment
-        timestamp    : When generated
     """
     text:        str
     move_number: int
@@ -95,25 +73,8 @@ class CommentaryLine:
 class CommentaryEngine:
     """
     Generates live commentary for chess moves.
- 
     Called after EVERY move during a live game.
     Works with  frontend for real-time display.
- 
-    USAGE:
-        engine = CommentaryEngine(
-            llm   = MockLLMProvider(),
-            style = CommentaryStyle.DRAMATIC
-        )
- 
-        # After each move:
-        line = engine.comment(move_data)
-        print(line.text)
-        # -> "Devastating! That blunder throws away a winning position!"
- 
-    Args:
-        llm        : Any LLMProvider
-        style      : CommentaryStyle enum
-        use_llm    : If True uses LLM, if False uses templates (faster)
     """
  
     def __init__(
@@ -132,12 +93,6 @@ class CommentaryEngine:
         """
         Generates commentary for a single move.
         Called in real time after every move.
- 
-        Args:
-            data : MoveData for the move just played
- 
-        Returns:
-            CommentaryLine: Ready to display on screen
         """
         score_drop  = abs(data.score_after - data.score_before)
         is_critical = score_drop >= 1.5  # blunder threshold from Piyush
@@ -164,12 +119,6 @@ class CommentaryEngine:
         """
         Generates commentary for multiple moves.
         Used for post-game replay.
- 
-        Args:
-            moves : List of MoveData objects
- 
-        Returns:
-            List[CommentaryLine]: One line per move
         """
         lines = []
         for move in moves:
@@ -183,12 +132,6 @@ class CommentaryEngine:
         """
         Returns the N most critical commentary moments.
         Good for a "key moments" summary panel.
- 
-        Args:
-            top_n : How many highlights to return
- 
-        Returns:
-            List[CommentaryLine]: Most critical moments
         """
         critical = [l for l in self._history if l.is_critical]
         return critical[:top_n]
