@@ -7,33 +7,6 @@ def build_postgame_report(
     analysis_result,
     personalization_context
 ):
-    """
-    Builds a complete post-game coaching report.
-
-    Parameters
-    ----------
-    analysis_result : dict
-
-    Example:
-    {
-        "weaknesses": [
-            {
-                "type": "king_safety",
-                "detail": "King is exposed"
-            }
-        ],
-        "weakness_count": 1
-    }
-
-    personalization_context : dict
-
-    Output of:
-    build_personalization_context()
-
-    Returns
-    -------
-    dict
-    """
 
     top_weaknesses = personalization_context[
         "top_weaknesses"
@@ -130,44 +103,3 @@ def format_report(report):
 
     return "\n".join(lines)
 
-
-if __name__ == "__main__":
-
-    sample_analysis = {
-        "weakness_count": 2,
-        "weaknesses": [
-            {
-                "type": "king_safety",
-                "detail":
-                    "King is exposed"
-            },
-            {
-                "type":
-                    "poor_center_control",
-                "detail":
-                    "Only controlling 1 center square"
-            }
-        ]
-    }
-
-    sample_context = {
-        "player_name": "Steve",
-        "rating": 1200,
-        "win_rate": 0.45,
-        "playing_style": "Aggressive",
-
-        "top_weaknesses": [
-            ("king_safety", 0.8),
-            ("missed_tactic", 0.7),
-            ("endgame_error", 0.4)
-        ]
-    }
-
-    report = build_postgame_report(
-        sample_analysis,
-        sample_context
-    )
-
-    print(
-        format_report(report)
-    )
