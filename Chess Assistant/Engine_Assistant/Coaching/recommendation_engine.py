@@ -6,21 +6,6 @@ from lesson_mapper import get_lesson
 def generate_recommendations(top_weaknesses):
     """
     Generates training recommendations from top weaknesses.
-
-    Parameters
-    ----------
-    top_weaknesses : list
-
-    Example:
-    [
-        ("missed_tactic", 0.80),
-        ("king_safety", 0.60),
-        ("endgame_error", 0.40)
-    ]
-
-    Returns
-    -------
-    list[dict]
     """
 
     recommendations = []
@@ -79,37 +64,3 @@ def format_recommendations(recommendations):
         )
 
     return "\n".join(lines)
-
-
-if __name__ == "__main__":
-
-    sample_top_weaknesses = [
-        ("missed_tactic", 0.85),
-        ("king_safety", 0.70),
-        ("endgame_error", 0.40)
-    ]
-
-    recommendations = generate_recommendations(
-        sample_top_weaknesses
-    )
-
-    print("Recommendations:\n")
-
-    for rec in recommendations:
-        print(rec)
-
-    print("\nTop Priority Recommendation:\n")
-
-    print(
-        get_priority_recommendation(
-            sample_top_weaknesses
-        )
-    )
-
-    print("\nFormatted Output:\n")
-
-    print(
-        format_recommendations(
-            recommendations
-        )
-    )
