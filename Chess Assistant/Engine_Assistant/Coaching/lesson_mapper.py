@@ -60,14 +60,6 @@ LESSON_MAP = {
 def get_lesson(weakness_type):
     """
     Returns lesson information for a weakness.
-
-    Parameters
-    ----------
-    weakness_type : str
-
-    Returns
-    -------
-    dict
     """
 
     return LESSON_MAP.get(
@@ -85,24 +77,3 @@ def get_all_lessons():
     """
 
     return LESSON_MAP
-
-
-if __name__ == "__main__":
-
-    print("Testing Lesson Mapper\n")
-
-    weaknesses = [
-        "missed_tactic",
-        "king_safety",
-        "endgame_error",
-        "unknown_weakness"
-    ]
-
-    for weakness in weaknesses:
-
-        lesson = get_lesson(weakness)
-
-        print(f"Weakness: {weakness}")
-        print(f"Lesson: {lesson['title']}")
-        print(f"Description: {lesson['description']}")
-        print("-" * 50)
